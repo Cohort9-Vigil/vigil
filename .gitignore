@@ -19,6 +19,8 @@ broadcast/
 *.pem
 *.key
 *.keystore
+keystore/
+**/keystore/
 
 # Node / JS
 node_modules/

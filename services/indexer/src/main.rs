@@ -1,17 +1,4 @@
-//! Vigil Indexer Microservice
-//! Subscribes to EVM logs from Anvil/RPC, indexes borrower position updates,
-//! handles chain reorgs, persists crash-safe cursors in PostgreSQL,
-//! exposes Prometheus metrics & health checks, and streams events to NATS JetStream.
-
 use std::time::Duration;
-use alloy::providers::Provider;
-use anyhow::Result;
-use indexer::cursor::PostgresCursorStore;
-use indexer::listener::BlockIngestor;
-use indexer::publisher::NatsJetStreamPublisher;
-use indexer::telemetry::{start_health_and_metrics_server, Metrics};
-use tracing::{error, info, warn};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use alloy::primitives::Address;
 use alloy::providers::{Provider, ProviderBuilder};
@@ -24,72 +11,53 @@ use vigil_indexer::engine::Indexer;
 use vigil_indexer::sink::NatsSink;
 use vigil_indexer::store::PgIndexerStore;
 
-    info!("Starting Vigil Indexer microservice (Japheth - Infra, Bus & Persistence)...");
+#[derive(Parser, Debug)]
+#[command(about = "Vigil Indexer: publishes pool events, retractions and block state")]
+struct Args {
+    #[arg(long, env = "RPC_URL", default_value = "http://127.0.0.1:8545")]
+    rpc_url: String,
+    #[arg(long, env = "DEPLOYMENT_FILE")]
+    deployment_file: String,
+    #[arg(long, env = "DATABASE_URL")]
+    database_url: String,
+    #[arg(long, env = "NATS_URL", default_value = "nats://127.0.0.1:4222")]
+    nats_url: String,
+    /// First block to index when no cursor exists.
+    #[arg(long, env = "START_BLOCK", default_value_t = 0)]
+    start_block: u64,
+    #[arg(long, env = "POLL_MS", default_value_t = 200)]
+    poll_ms: u64,
+}
 
-    let rpc_url = std::env::var("RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".into());
-    let nats_url = std::env::var("NATS_URL").unwrap_or_else(|_| "nats://127.0.0.1:4222".into());
-    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/vigil".into());
-    let metrics_port: u16 = std::env::var("METRICS_PORT")
-        .or_else(|_| std::env::var("HEALTH_PORT"))
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(8080);
-    let poll_interval_ms: u64 = std::env::var("POLL_INTERVAL_MS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(1000);
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    vigil_common::telemetry::init("indexer");
+    let args = Args::parse();
+    let deployment = Deployment::load(&args.deployment_file)?;
 
-    info!(
-        rpc_url = %rpc_url,
-        nats_url = %nats_url,
-        database_url = %database_url,
-        metrics_port = metrics_port,
-        poll_interval_ms = poll_interval_ms,
-        "Configuration loaded"
-    );
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&args.database_url)
+        .await?;
+    sqlx::migrate!("../../migrations").run(&pool).await?;
 
-    // 1. Initialize Prometheus metrics and spawn HTTP health/metrics server (RS-04)
-    let metrics = Metrics::new();
-    let _health_server_handle = start_health_and_metrics_server(metrics_port, metrics.clone()).await?;
+    let nats = async_nats::connect(&args.nats_url).await?;
+    let sink = NatsSink::connect(nats).await?;
 
-    // 2. Initialize PostgreSQL Cursor Store (RS-03)
-    let cursor_store = match PostgresCursorStore::connect(&database_url).await {
-        Ok(store) => {
-            info!("Connected to PostgreSQL and verified cursor schema");
-            store
-        }
-        Err(e) => {
-            error!(error = %e, "Failed to connect to PostgreSQL; exiting");
-            return Err(e);
-        }
-    };
-
-    // 3. Initialize NATS JetStream Publisher (RS-01, RS-04)
-    let publisher = match NatsJetStreamPublisher::connect(&nats_url).await {
-        Ok(publ) => publ,
-        Err(e) => {
-            error!(error = %e, "Failed to connect to NATS JetStream; exiting");
-            return Err(e);
-        }
-    };
-
-    // 4. Initialize BlockIngestor with 10-block sliding window, Postgres persistence, and metrics
-    let mut ingestor = BlockIngestor::connect_http(&rpc_url, publisher, 10)?
-        .with_cursor_store(cursor_store)
-        .with_metrics(metrics);
-
-    // 5. Run startup recovery routine (RS-03): recover saved cursor and recent block window
-    match ingestor.recover_from_cursor_store(10).await {
-        Ok(Some(last_block)) => {
-            info!(last_block, "Resuming block ingestion from cursor + 1");
-        }
-        Ok(None) => {
-            info!("No previous cursor saved. Starting block ingestion from genesis/current head");
-        }
-        Err(e) => {
-            warn!(error = %e, "Warning during startup cursor recovery; continuing with fresh state");
-        }
+    let provider = ProviderBuilder::new()
+        .connect_http(args.rpc_url.parse()?)
+        .erased();
+    let mut by_bit: [Option<Address>; MAX_COLLATERAL] = [None; MAX_COLLATERAL];
+    for c in &deployment.collaterals {
+        by_bit[c.bit_index as usize] = Some(c.address);
     }
+    let chain = RpcChain::new(
+        provider,
+        deployment.pool,
+        deployment.oracle,
+        deployment.debt,
+        by_bit,
+    );
 
     let store = PgIndexerStore::new(pool);
     let mut indexer = Indexer::resume(chain, sink, store, args.start_block).await?;

@@ -1,0 +1,44 @@
+# Version control & Git metadata
+.git/
+.gitignore
+.gitattributes
+
+# Rust target & build caches
+target/
+**/target/
+
+# Environment files, secrets & keystores
+.env
+.env.*
+*.env
+*.keystore
+keystore/
+**/keystore/
+
+# Logs and local reports
+*.log
+**/*.log
+logs/
+**/logs/
+scenario-report.json
+
+# Contracts and Web frontend directories (unneeded for liquidator service)
+contracts/
+web/
+
+# Documentation and project notes
+docs/
+*.md
+
+# Node / JS artifacts
+node_modules/
+package-lock.json
+
+# IDE and OS metadata
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db

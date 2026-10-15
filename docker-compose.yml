@@ -87,9 +87,7 @@ services:
   liquidator:
     build:
       context: .
-      dockerfile: services/Dockerfile
-      args:
-        BIN: vigil-liquidator
+      dockerfile: services/liquidator/Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
