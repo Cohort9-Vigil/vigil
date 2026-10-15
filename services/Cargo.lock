@@ -1451,8 +1451,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
+ "js-sys",
  "num-traits",
  "serde",
+ "wasm-bindgen",
  "windows-link",
 ]
 
@@ -2114,7 +2116,7 @@ dependencies = [
  "sha2 0.10.9",
  "sha3 0.10.9",
  "thiserror 1.0.69",
- "uuid",
+ "uuid 0.8.2",
 ]
 
 [[package]]
@@ -5371,6 +5373,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "uuid"
+version = "1.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cc1186384beb7dd8eedea376413fd654937285ea6c9cfbb928dc3043ea4b606"
+dependencies = [
+ "getrandom 0.4.3",
+ "js-sys",
+ "serde_core",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "valuable"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5429,10 +5443,14 @@ dependencies = [
  "async-nats",
  "async-trait",
  "clap",
+ "serde",
  "serde_json",
  "sqlx",
  "tokio",
  "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid 1.28.0",
  "vigil-common",
 ]
 
@@ -5462,6 +5480,7 @@ dependencies = [
  "async-nats",
  "async-trait",
  "axum",
+ "chrono",
  "clap",
  "futures",
  "serde",
@@ -5470,6 +5489,8 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "tracing-subscriber",
+ "uuid 1.28.0",
  "vigil-common",
 ]
 

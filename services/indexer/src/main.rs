@@ -6,23 +6,19 @@
 use std::time::Duration;
 use alloy::providers::Provider;
 use anyhow::Result;
-use indexer::cursor::PostgresCursorStore;
-use indexer::listener::BlockIngestor;
-use indexer::publisher::NatsJetStreamPublisher;
-use indexer::telemetry::{start_health_and_metrics_server, Metrics};
+use vigil_indexer::cursor::PostgresCursorStore;
+use vigil_indexer::listener::BlockIngestor;
+use vigil_indexer::publisher::NatsJetStreamPublisher;
+use vigil_indexer::telemetry::{start_health_and_metrics_server, Metrics};
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use alloy::primitives::Address;
-use alloy::providers::{Provider, ProviderBuilder};
-use clap::Parser;
-use sqlx::postgres::PgPoolOptions;
-use vigil_common::config::Deployment;
-use vigil_common::model::MAX_COLLATERAL;
-use vigil_indexer::chain::RpcChain;
-use vigil_indexer::engine::Indexer;
-use vigil_indexer::sink::NatsSink;
-use vigil_indexer::store::PgIndexerStore;
+#[tokio::main]
+async fn main() -> Result<()> {
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,indexer=debug".into()))
+        .with(tracing_subscriber::fmt::layer().json())
+        .init();
 
     info!("Starting Vigil Indexer microservice (Japheth - Infra, Bus & Persistence)...");
 
@@ -91,18 +87,28 @@ use vigil_indexer::store::PgIndexerStore;
         }
     }
 
-    let store = PgIndexerStore::new(pool);
-    let mut indexer = Indexer::resume(chain, sink, store, args.start_block).await?;
-    tracing::info!(next = indexer.next, "indexer started");
+    let mut poll_interval = tokio::time::interval(Duration::from_millis(poll_interval_ms));
 
     loop {
-        match indexer.catch_up().await {
-            Ok(0) => {}
-            Ok(n) => tracing::info!(blocks = n, next = indexer.next, "indexed"),
-            // A failed read is retried. A reorg deeper than the ring is fatal, so exit (fail closed).
-            Err(e) if e.to_string().contains("deeper than") => return Err(e),
-            Err(e) => tracing::warn!(error = %e, "indexer step failed, retrying"),
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                info!("Shutdown signal received. Shutting down Indexer gracefully.");
+                break;
+            }
+            _ = poll_interval.tick() => {
+                match ingestor.provider.get_block_number().await {
+                    Ok(latest_head) => {
+                        if let Err(e) = ingestor.ingest_hint(latest_head).await {
+                            warn!(error = %e, head = latest_head, "Error during block ingestion");
+                        }
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "Failed to poll block number from RPC");
+                    }
+                }
+            }
         }
-        tokio::time::sleep(Duration::from_millis(args.poll_ms)).await;
     }
+
+    Ok(())
 }

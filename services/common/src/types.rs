@@ -37,3 +37,13 @@ pub struct LiquidationIntent {
     pub min_collateral_expected: u128,
     pub block_number: u64,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssetConfig {
+    pub asset: Address,
+    pub symbol: String,
+    pub decimals: u8,
+    pub ltv_wad: u128,
+    pub liq_threshold_wad: u128,
+    pub is_active: bool,
+}

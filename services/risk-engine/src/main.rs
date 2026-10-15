@@ -1,141 +1,112 @@
-use std::net::SocketAddr;
-use std::str::FromStr;
+//! Vigil Risk Engine Microservice Entrypoint
+//!
+//! Consumes indexed EVM events, maintains borrower positions in Postgres,
+//! continuously evaluates health factors with exact Solidity math parity,
+//! and emits liquidation signals via a transactional outbox.
+
+use anyhow::{Context, Result};
+use async_nats::jetstream;
+use risk_engine::api::HttpServer;
+use risk_engine::config::Config;
+use risk_engine::consumer::EventConsumer;
+use risk_engine::db::init_db;
+use risk_engine::engine::health_gate::HealthGate;
+use risk_engine::publisher::OutboxWorker;
 use std::sync::Arc;
-
-use async_nats::header::HeaderMap;
-use async_nats::jetstream::{self, consumer::pull, consumer::AckPolicy, stream};
-use clap::Parser;
-use futures::StreamExt;
-use sqlx::postgres::PgPoolOptions;
-use tokio::sync::Mutex;
-use vigil_common::config::Deployment;
-use vigil_common::messages::{
-    BlockMessage, EventMessage, LiquidationSignal, STREAM_NAME, SUBJECT_BLOCKS, SUBJECT_EVENTS,
-};
-use vigil_risk_engine::api::{self, ApiState};
-use vigil_risk_engine::engine::RiskEngine;
-use vigil_risk_engine::store::PgRiskStore;
-
-#[derive(Parser, Debug)]
-#[command(about = "Vigil Risk Engine: positions, exactly-once processing, liquidation signals")]
-struct Args {
-    #[arg(long, env = "DEPLOYMENT_FILE")]
-    deployment_file: String,
-    #[arg(long, env = "DATABASE_URL")]
-    database_url: String,
-    #[arg(long, env = "NATS_URL", default_value = "nats://127.0.0.1:4222")]
-    nats_url: String,
-    #[arg(long, env = "HTTP_ADDR", default_value = "127.0.0.1:8080")]
-    http_addr: String,
-}
+use std::time::Duration;
+use tracing::{error, info};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    vigil_common::telemetry::init("risk-engine");
-    let args = Args::parse();
-    let deployment = Deployment::load(&args.deployment_file)?;
+async fn main() -> Result<()> {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,risk_engine=debug".into()),
+        )
+        .with(tracing_subscriber::fmt::layer().json())
+        .init();
 
-    let pool = PgPoolOptions::new()
-        .max_connections(10)
-        .connect(&args.database_url)
-        .await?;
-    sqlx::migrate!("../../migrations").run(&pool).await?;
+    info!("Starting Vigil Risk Engine microservice...");
 
-    let state = Arc::new(ApiState {
-        engine: Mutex::new(RiskEngine::new(
-            PgRiskStore::new(pool),
-            deployment.pool_params(),
-        )),
-    });
+    let config = Config::from_env();
+    info!(
+        database_url = %config.database_url,
+        nats_url = %config.nats_url,
+        http_port = config.http_port,
+        max_lag_seconds = config.max_lag_seconds,
+        debt_asset = %config.canonical_debt_asset,
+        "Configuration loaded successfully"
+    );
 
-    let addr = SocketAddr::from_str(&args.http_addr)?;
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    let http_state = state.clone();
+    // Initialize Postgres connection pool
+    let pool = init_db(&config.database_url)
+        .await
+        .context("Failed to connect to Postgres")?;
+    info!("Connected to Postgres database");
+
+    // Initialize Fail-Closed Health Gate
+    let health_gate = HealthGate::new(config.max_lag_seconds);
+
+    // Spawn HTTP Health and Metrics Server
+    let http_server = HttpServer::new(config.http_port, Arc::clone(&health_gate));
     tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, api::router(http_state)).await {
-            tracing::error!(error = %e, "http server stopped");
+        if let Err(e) = http_server.run().await {
+            error!(error = %e, "HTTP health server crashed");
         }
     });
 
-    let nats = async_nats::connect(&args.nats_url).await?;
-    let js = jetstream::new(nats);
-    let stream = js
-        .get_or_create_stream(stream::Config {
-            name: STREAM_NAME.to_string(),
-            subjects: vec!["vigil.>".to_string()],
+    // Initialize NATS JetStream
+    let nats_client = async_nats::connect(&config.nats_url)
+        .await
+        .context("Failed to connect to NATS")?;
+    let js_context = jetstream::new(nats_client);
+
+    // Ensure VIGIL_EVENTS and VIGIL_SIGNALS streams exist
+    let _ = js_context
+        .get_or_create_stream(jetstream::stream::Config {
+            name: "VIGIL_EVENTS".to_string(),
+            subjects: vec!["vigil.events.>".to_string()],
             ..Default::default()
         })
-        .await?;
-    // Durable consumer: a restart resumes where it left off. Messages are acked only after the
-    // state change commits, so an unprocessed message is redelivered.
-    let consumer = stream
-        .get_or_create_consumer(
-            "risk-engine",
-            pull::Config {
-                durable_name: Some("risk-engine".to_string()),
-                ack_policy: AckPolicy::Explicit,
-                filter_subjects: vec![SUBJECT_EVENTS.to_string(), SUBJECT_BLOCKS.to_string()],
-                ..Default::default()
-            },
-        )
-        .await?;
-    let mut messages = consumer.messages().await?;
-    tracing::info!("risk engine consuming");
-
-    while let Some(next) = messages.next().await {
-        let msg = match next {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!(error = %e, "consumer error, continuing");
-                continue;
-            }
-        };
-        let subject = msg.subject.to_string();
-        let outcome: anyhow::Result<()> = async {
-            if subject == SUBJECT_EVENTS {
-                let ev: EventMessage = serde_json::from_slice(&msg.payload)?;
-                let changed = state.engine.lock().await.handle_event(&ev).await?;
-                tracing::debug!(trace_id = %ev.trace_id, changed, "event applied");
-            } else if subject == SUBJECT_BLOCKS {
-                let block: BlockMessage = serde_json::from_slice(&msg.payload)?;
-                let signals = state.engine.lock().await.handle_block(block).await?;
-                for s in signals {
-                    publish_signal(&js, &s).await?;
-                }
-            }
-            Ok(())
-        }
         .await;
 
-        match outcome {
-            Ok(()) => msg
-                .ack()
-                .await
-                .map_err(|e| anyhow::anyhow!("ack failed: {e}"))?,
-            // Leave it unacked. JetStream redelivers after the ack wait, and the idempotency keys
-            // stop a double-apply.
-            Err(e) => {
-                tracing::error!(error = %e, subject, "message not applied, will be redelivered")
-            }
-        }
-    }
-    Ok(())
-}
+    let _ = js_context
+        .get_or_create_stream(jetstream::stream::Config {
+            name: "VIGIL_SIGNALS".to_string(),
+            subjects: vec!["vigil.signals.>".to_string()],
+            ..Default::default()
+        })
+        .await;
 
-async fn publish_signal(js: &jetstream::Context, s: &LiquidationSignal) -> anyhow::Result<()> {
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        "Nats-Msg-Id",
-        format!("signal:{:#x}:{}", s.borrower, s.block_number).as_str(),
+    // Spawn Transactional Outbox Worker
+    let outbox_worker = OutboxWorker::new(
+        pool.clone(),
+        js_context.clone(),
+        Arc::clone(&health_gate),
+        Duration::from_millis(500),
     );
-    headers.insert("trace-id", s.trace_id.as_str());
-    js.publish_with_headers(
-        vigil_common::messages::signal_subject(s.borrower),
-        headers,
-        serde_json::to_vec(s)?.into(),
-    )
-    .await?
-    .await?;
-    tracing::info!(borrower = %s.borrower, block = s.block_number, trace_id = %s.trace_id, "liquidation signal");
+    tokio::spawn(async move {
+        outbox_worker.run_loop().await;
+    });
+
+    // Spawn Event Consumer
+    let consumer = EventConsumer::new(
+        pool.clone(),
+        js_context,
+        config.clone(),
+        Arc::clone(&health_gate),
+    );
+    tokio::spawn(async move {
+        if let Err(e) = consumer.run_subscription_loop().await {
+            error!(error = %e, "JetStream consumer encountered fatal error");
+        }
+    });
+
+    info!("Risk Engine fully operational: awaiting chain mutations and price feeds");
+
+    tokio::signal::ctrl_c().await?;
+    info!("Shutdown signal received. Shutting down Risk Engine gracefully.");
+
     Ok(())
 }

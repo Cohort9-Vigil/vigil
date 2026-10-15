@@ -1,7 +1,7 @@
 //! NATS JetStream messaging events and schema definitions.
 
-use serde::{Deserialize, Serialize};
 use crate::types::{Address, OraclePrice};
+use serde::{Deserialize, Serialize};
 
 pub const SUBJECT_CHAIN_EVENTS: &str = "vigil.events.chain";
 pub const SUBJECT_RETRACT_EVENTS: &str = "vigil.events.retract";
@@ -142,15 +142,21 @@ impl RetractEvent {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LiquidationSignal {
     pub trace_id: String,
+    pub dedupe_key: String,
     pub borrower: Address,
     pub collateral_asset: Address,
+    pub debt_asset: Address,
     pub health_factor_wad: u128,
     pub total_debt_wad: u128,
     pub total_collateral_value_wad: u128,
+    pub debt_to_cover: u128,
+    pub price_snapshot_wad: u128,
     pub detected_at_block: u64,
+    pub block_hash: String,
+    pub timestamp: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -225,4 +231,3 @@ mod tests {
         assert_eq!(deserialized.idempotency_key.to_key_string(), "0x1111:1");
     }
 }
-
