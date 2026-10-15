@@ -4,9 +4,9 @@
 //! When a parent-hash mismatch is detected, walks back to the common ancestor and
 //! emits `RetractEvent`s in strict reverse chronological order before ingesting the new fork.
 
+use std::collections::VecDeque;
 use anyhow::{anyhow, Result};
 use common::events::{IndexedEvent, RetractEvent};
-use std::collections::VecDeque;
 use tracing::info;
 
 pub const DEFAULT_RING_CAPACITY: usize = 10;
@@ -87,9 +87,7 @@ impl ReorgRingBuffer {
     }
 
     pub fn contains_hash(&self, hash: &str) -> Option<&StoredBlock> {
-        self.blocks
-            .iter()
-            .find(|b| b.block_hash.eq_ignore_ascii_case(hash))
+        self.blocks.iter().find(|b| b.block_hash.eq_ignore_ascii_case(hash))
     }
 
     /// Evaluates a new block header against the current head of the ring buffer.
@@ -106,8 +104,7 @@ impl ReorgRingBuffer {
         let latest = self.latest_block().unwrap();
 
         // Check for duplicate / already processed head
-        if latest.block_number == block_number && latest.block_hash.eq_ignore_ascii_case(block_hash)
-        {
+        if latest.block_number == block_number && latest.block_hash.eq_ignore_ascii_case(block_hash) {
             return BlockEvaluation::AlreadyProcessed;
         }
 
@@ -256,8 +253,7 @@ impl ReorgRingBuffer {
 
             // Fetch the parent block on the new branch
             current_height -= 1;
-            let (_fetched_hash, fetched_parent) =
-                fetch_parent_of(current_parent_hash.clone(), current_height).await?;
+            let (_fetched_hash, fetched_parent) = fetch_parent_of(current_parent_hash.clone(), current_height).await?;
             current_parent_hash = fetched_parent;
         }
 
@@ -337,28 +333,21 @@ mod tests {
         let mut ring = ReorgRingBuffer::new(10);
 
         // Store block 10 (common ancestor)
-        ring.push_block(
-            10,
-            "0xhash10".into(),
-            "0xhash9".into(),
-            vec![mock_event(10, "0xhash10", 0)],
-        );
+        ring.push_block(10, "0xhash10".into(), "0xhash9".into(), vec![
+            mock_event(10, "0xhash10", 0),
+        ]);
 
         // Store block 11 (orphaned later) with 2 events: log 0, log 1
-        ring.push_block(
-            11,
-            "0xhash11".into(),
-            "0xhash10".into(),
-            vec![mock_event(11, "0xhash11", 0), mock_event(11, "0xhash11", 1)],
-        );
+        ring.push_block(11, "0xhash11".into(), "0xhash10".into(), vec![
+            mock_event(11, "0xhash11", 0),
+            mock_event(11, "0xhash11", 1),
+        ]);
 
         // Store block 12 (orphaned later) with 2 events: log 0, log 1
-        ring.push_block(
-            12,
-            "0xhash12".into(),
-            "0xhash11".into(),
-            vec![mock_event(12, "0xhash12", 0), mock_event(12, "0xhash12", 1)],
-        );
+        ring.push_block(12, "0xhash12".into(), "0xhash11".into(), vec![
+            mock_event(12, "0xhash12", 0),
+            mock_event(12, "0xhash12", 1),
+        ]);
 
         assert_eq!(ring.len(), 3);
 
@@ -394,18 +383,8 @@ mod tests {
     async fn test_walk_back_to_ancestor() {
         let mut ring = ReorgRingBuffer::new(10);
         ring.push_block(8, "0xancestor8".into(), "0x7".into(), vec![]);
-        ring.push_block(
-            9,
-            "0xforkA_9".into(),
-            "0xancestor8".into(),
-            vec![mock_event(9, "0xforkA_9", 0)],
-        );
-        ring.push_block(
-            10,
-            "0xforkA_10".into(),
-            "0xforkA_9".into(),
-            vec![mock_event(10, "0xforkA_10", 0)],
-        );
+        ring.push_block(9, "0xforkA_9".into(), "0xancestor8".into(), vec![mock_event(9, "0xforkA_9", 0)]);
+        ring.push_block(10, "0xforkA_10".into(), "0xforkA_9".into(), vec![mock_event(10, "0xforkA_10", 0)]);
 
         // New fork B arrives at block 11, with parent "0xforkB_10"
         // Fork B:

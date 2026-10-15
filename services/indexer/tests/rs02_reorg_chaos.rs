@@ -175,7 +175,7 @@ async fn test_rs02_chaos_reorg_2_blocks_with_reverse_retractions() {
     // Step 1: Deploy VigilPool contract onto Anvil (Block 1)
     let pool_address = deploy_contract(
         &anvil.rpc_url,
-        "../../contracts/out/VigilPool.sol/VigilPool.json",
+        "../../contracts/out/EventEmitterPool.sol/EventEmitterPool.json",
     );
 
     let publisher = MockEventPublisher::new();

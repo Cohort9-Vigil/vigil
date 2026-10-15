@@ -523,7 +523,7 @@ async fn evaluate_and_update_position(
     // Fetch oracle price for collateral
     let price_wad = get_latest_oracle_price(conn, ctx.collateral_asset)
         .await?
-        .unwrap_or(common::math::WAD);
+        .unwrap_or(common::math::WAD_U128);
 
     // Fetch asset config
     let asset_cfg = get_asset_config(conn, ctx.collateral_asset)

@@ -1,0 +1,61 @@
+{
+  "chainId": 11155111,
+  "pool": "0xecF5622D592293c960bFec2A948dF9e8B1323358",
+  "implementation": "0x0A5bbb0781A35112f2eBAd1F2b6FEeC72621C8E9",
+  "liquidationSettlement": "0x488eB39f40D0E808dC0e5533697A18b3c0f3787B",
+  "settlement": "0x488eB39f40D0E808dC0e5533697A18b3c0f3787B",
+  "oracle": "0xAc134af348f29cdb174701E766C3959eA68dd649",
+  "debt": "0xA0C8B0582B47D2b561Fca63d5458D0E12a0F4d7f",
+  "stablecoin": "0xA0C8B0582B47D2b561Fca63d5458D0E12a0F4d7f",
+  "debtDecimals": 6,
+  "debtFeed": "0x8E6ca1c742E173de3187f8a78b24Cb4EF603A1eB",
+  "stablecoinFeed": "0x8E6ca1c742E173de3187f8a78b24Cb4EF603A1eB",
+  "feeToken": "0x91A9CA0Ad8f2306764ED2E04C9CD45287691e5DF",
+  "feeTokenFeed": "0x7Ee030D13d7635425b0c7Ffb192cdD19d5889BaD",
+  "feeTokenAmm": "0xd73d01496b99B03d870A2D694665d7668b5f1BA9",
+  "sixDecimalToken": "0xfA1077D9f3A0D098b2827cAa6D4f2D01B31545E3",
+  "sixDecimalTokenFeed": "0x76d707562118f1ea87148BA4EE5cF6a62D771C0d",
+  "sixDecimalTokenAmm": "0x621695E20Ad6b977A9f0b682a9314c7f1F7A18DE",
+  "eightDecimalToken": "0x2E301949D27B925FF5d166c3c6573bd6F28ab2ff",
+  "eightDecimalTokenFeed": "0x8b8F7Bb3B15053bAa9d50e024362045aa6Ccc63D",
+  "eightDecimalTokenAmm": "0x9586c8b3E57b95e5c4ce57B9F614342C34eaf74B",
+  "reserveFactor": "0x0000000000000000000000000000000000000000000000056bc75e2d63100000",
+  "rates": {
+    "baseRate": "0x0000000000000000000000000000000000000000000000010f0cf064dd592000",
+    "slope1": "0x0000000000000000000000000000000000000000000000021e19e0c9bac24000",
+    "slope2": "0x000000000000000000000000000000000000000000000027178b53e8a4a58000",
+    "optimalUtil": "0x00000000000000000000000000000000000000000000002a2bb7f7f482000000"
+  },
+  "collaterals": [
+    {
+      "name": "vFEE",
+      "address": "0x91A9CA0Ad8f2306764ED2E04C9CD45287691e5DF",
+      "decimals": 18,
+      "bitIndex": 0,
+      "liqThresholdBps": 8000,
+      "liqBonusBps": 1000,
+      "feed": "0x7Ee030D13d7635425b0c7Ffb192cdD19d5889BaD",
+      "amm": "0xd73d01496b99B03d870A2D694665d7668b5f1BA9"
+    },
+    {
+      "name": "vSIX",
+      "address": "0xfA1077D9f3A0D098b2827cAa6D4f2D01B31545E3",
+      "decimals": 6,
+      "bitIndex": 1,
+      "liqThresholdBps": 8000,
+      "liqBonusBps": 1000,
+      "feed": "0x76d707562118f1ea87148BA4EE5cF6a62D771C0d",
+      "amm": "0x621695E20Ad6b977A9f0b682a9314c7f1F7A18DE"
+    },
+    {
+      "name": "vEIGHT",
+      "address": "0x2E301949D27B925FF5d166c3c6573bd6F28ab2ff",
+      "decimals": 8,
+      "bitIndex": 2,
+      "liqThresholdBps": 8000,
+      "liqBonusBps": 1000,
+      "feed": "0x8b8F7Bb3B15053bAa9d50e024362045aa6Ccc63D",
+      "amm": "0x9586c8b3E57b95e5c4ce57B9F614342C34eaf74B"
+    }
+  ]
+}

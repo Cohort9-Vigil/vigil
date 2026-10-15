@@ -100,7 +100,7 @@ pub fn evaluate_position(input: &PositionEvaluationInput) -> anyhow::Result<Eval
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common::math::WAD;
+    use common::math::WAD_U128 as WAD;
 
     #[test]
     fn test_evaluator_healthy_position() {

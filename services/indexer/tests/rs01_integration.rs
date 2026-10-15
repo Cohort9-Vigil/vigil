@@ -127,11 +127,11 @@ async fn test_rs01_live_anvil_ingestion_and_decoding() {
     // 1. Deploy VigilPool and OracleAdapter contracts onto Anvil
     let pool_address = deploy_contract(
         &anvil.rpc_url,
-        "../../contracts/out/VigilPool.sol/VigilPool.json",
+        "../../contracts/out/EventEmitterPool.sol/EventEmitterPool.json",
     );
     let oracle_address = deploy_contract(
         &anvil.rpc_url,
-        "../../contracts/out/OracleAdapter.sol/OracleAdapter.json",
+        "../../contracts/out/EventEmitterOracle.sol/EventEmitterOracle.json",
     );
 
     assert!(pool_address.starts_with("0x"));
