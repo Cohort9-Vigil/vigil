@@ -1,12 +1,10 @@
 //! JetStream event publisher for forward events and reorg retractions (RS-01, RS-04).
 
-use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Result};
 use async_nats::jetstream::{self, Context as JetStreamContext};
 use async_nats::HeaderMap;
-use common::events::{
-    IndexedEvent, RetractEvent, SUBJECT_CHAIN_EVENTS, SUBJECT_RETRACT_EVENTS,
-};
+use common::events::{IndexedEvent, RetractEvent, SUBJECT_CHAIN_EVENTS, SUBJECT_RETRACT_EVENTS};
+use std::sync::{Arc, Mutex};
 use tracing::{debug, info};
 
 /// Trait abstracting event publication to NATS or test sinks.
@@ -23,7 +21,8 @@ pub struct NatsJetStreamPublisher {
 
 impl NatsJetStreamPublisher {
     pub async fn connect(nats_url: &str) -> Result<Self> {
-        let client = async_nats::connect(nats_url).await
+        let client = async_nats::connect(nats_url)
+            .await
             .map_err(|e| anyhow!("Failed to connect to NATS at {nats_url}: {e}"))?;
         let context = jetstream::new(client);
 
@@ -33,7 +32,9 @@ impl NatsJetStreamPublisher {
             subjects: vec!["vigil.events.>".to_string()],
             ..Default::default()
         };
-        context.get_or_create_stream(stream_config).await
+        context
+            .get_or_create_stream(stream_config)
+            .await
             .map_err(|e| anyhow!("Failed to ensure VIGIL_EVENTS JetStream stream: {e}"))?;
 
         info!(nats_url = %nats_url, "Connected to NATS JetStream and initialized VIGIL_EVENTS stream");
@@ -54,10 +55,7 @@ impl EventPublisher for NatsJetStreamPublisher {
         let mut headers = HeaderMap::new();
         // Deterministic idempotency key as Nats-Msg-Id for broker-level deduplication
         let msg_id = event.idempotency_key.to_key_string();
-        headers.insert(
-            "Nats-Msg-Id",
-            msg_id.as_str(),
-        );
+        headers.insert("Nats-Msg-Id", msg_id.as_str());
         headers.insert("trace_id", event.trace_id.as_str());
 
         let ack = self
@@ -84,10 +82,7 @@ impl EventPublisher for NatsJetStreamPublisher {
 
         let mut headers = HeaderMap::new();
         let msg_id = format!("retract:{}", event.idempotency_key.to_key_string());
-        headers.insert(
-            "Nats-Msg-Id",
-            msg_id.as_str(),
-        );
+        headers.insert("Nats-Msg-Id", msg_id.as_str());
         headers.insert("trace_id", event.trace_id.as_str());
 
         let ack = self

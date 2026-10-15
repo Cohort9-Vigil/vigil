@@ -29,7 +29,9 @@ impl<E: EventPublisher> BlockIngestor<(), E> {
         publisher: E,
         ring_capacity: usize,
     ) -> Result<BlockIngestor<impl Provider + Clone + 'static, E>> {
-        let url: url::Url = rpc_url.parse().map_err(|e| anyhow!("Invalid RPC URL: {e}"))?;
+        let url: url::Url = rpc_url
+            .parse()
+            .map_err(|e| anyhow!("Invalid RPC URL: {e}"))?;
         let provider = alloy::providers::ProviderBuilder::new().connect_http(url);
         Ok(BlockIngestor::new(provider, publisher, ring_capacity))
     }
@@ -54,7 +56,10 @@ impl<P: Provider + Clone + 'static, E: EventPublisher> BlockIngestor<P, E> {
     /// Ingests a new head block number as a hint (Rule 1).
     /// If there is a gap between `last_processed_block` and `hint_number`,
     /// sequentially fetches and processes every missing block.
-    pub async fn ingest_hint(&mut self, hint_number: u64) -> Result<(Vec<RetractEvent>, Vec<IndexedEvent>)> {
+    pub async fn ingest_hint(
+        &mut self,
+        hint_number: u64,
+    ) -> Result<(Vec<RetractEvent>, Vec<IndexedEvent>)> {
         let mut all_retractions = Vec::new();
         let mut all_indexed = Vec::new();
 
@@ -94,7 +99,10 @@ impl<P: Provider + Clone + 'static, E: EventPublisher> BlockIngestor<P, E> {
         let mut retractions_emitted = Vec::new();
 
         // 2. Evaluate block header against the 10-block sliding window
-        match self.ring.evaluate_header(block_number, &block_hash, &parent_hash) {
+        match self
+            .ring
+            .evaluate_header(block_number, &block_hash, &parent_hash)
+        {
             BlockEvaluation::DirectDescendant | BlockEvaluation::InitialBlock => {
                 debug!(block_number, %block_hash, "Linear canonical block");
             }
@@ -123,7 +131,10 @@ impl<P: Provider + Clone + 'static, E: EventPublisher> BlockIngestor<P, E> {
                             .await
                             .map_err(|e| anyhow!("Failed to fetch ancestor block {height}: {e}"))?
                             .ok_or_else(|| anyhow!("Ancestor block {height} not found"))?;
-                        Ok((format!("{:?}", b.header.hash), format!("{:?}", b.header.parent_hash)))
+                        Ok((
+                            format!("{:?}", b.header.hash),
+                            format!("{:?}", b.header.parent_hash),
+                        ))
                     }
                 };
 
@@ -164,7 +175,15 @@ impl<P: Provider + Clone + 'static, E: EventPublisher> BlockIngestor<P, E> {
                 }
 
                 // Append intermediate events to forward event output
-                let (hash_retracts, mut current_events) = self.fetch_and_publish_logs(&block, block_number, &block_hash, &parent_hash, block_timestamp).await?;
+                let (hash_retracts, mut current_events) = self
+                    .fetch_and_publish_logs(
+                        &block,
+                        block_number,
+                        &block_hash,
+                        &parent_hash,
+                        block_timestamp,
+                    )
+                    .await?;
                 retractions_emitted.extend(hash_retracts);
                 intermediate_events.append(&mut current_events);
                 return Ok((retractions_emitted, intermediate_events));
@@ -172,7 +191,15 @@ impl<P: Provider + Clone + 'static, E: EventPublisher> BlockIngestor<P, E> {
         }
 
         // 3. Fetch canonical block logs STRICTLY by block hash (Rule 2)
-        let (retracts, emitted) = self.fetch_and_publish_logs(&block, block_number, &block_hash, &parent_hash, block_timestamp).await?;
+        let (retracts, emitted) = self
+            .fetch_and_publish_logs(
+                &block,
+                block_number,
+                &block_hash,
+                &parent_hash,
+                block_timestamp,
+            )
+            .await?;
         retractions_emitted.extend(retracts);
         Ok((retractions_emitted, emitted))
     }

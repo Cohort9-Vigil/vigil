@@ -1,9 +1,9 @@
 //! Contract event definitions and decoding using alloy sol! macro.
 
-use alloy::sol;
-use alloy::sol_types::SolEvent;
 use alloy::primitives::U256;
 use alloy::rpc::types::eth::Log;
+use alloy::sol;
+use alloy::sol_types::SolEvent;
 use anyhow::{anyhow, Result};
 use common::events::ChainEvent;
 use common::types::{Address, OraclePrice};
@@ -33,11 +33,7 @@ sol! {
 
 /// Helper to decode an EVM log into a strongly-typed `ChainEvent`.
 /// Returns `None` if the log is not one of the monitored Vigil protocol events.
-pub fn decode_log(
-    log: &Log,
-    block_number: u64,
-    tx_hash: &str,
-) -> Result<Option<ChainEvent>> {
+pub fn decode_log(log: &Log, block_number: u64, tx_hash: &str) -> Result<Option<ChainEvent>> {
     let topics = log.topics();
     if topics.is_empty() {
         return Ok(None);
@@ -122,16 +118,31 @@ mod tests {
         let asset = address!("0000000000000000000000000000000000000002");
         let amount = uint!(1_000_000_000_000_000_000_U256);
 
-        let deposit_event = Deposit { user, asset, amount };
+        let deposit_event = Deposit {
+            user,
+            asset,
+            amount,
+        };
         let raw_log = deposit_event.encode_log_data();
 
         let mut log = Log::default();
         log.inner.data = raw_log;
 
-        let decoded = decode_log(&log, 42, "0xtxhash").expect("decode log").expect("some event");
+        let decoded = decode_log(&log, 42, "0xtxhash")
+            .expect("decode log")
+            .expect("some event");
         match decoded {
-            ChainEvent::Deposit { account, asset: ast, amount: amt, block_number, tx_hash } => {
-                assert_eq!(account.0.to_lowercase(), format!("{:?}", user).to_lowercase());
+            ChainEvent::Deposit {
+                account,
+                asset: ast,
+                amount: amt,
+                block_number,
+                tx_hash,
+            } => {
+                assert_eq!(
+                    account.0.to_lowercase(),
+                    format!("{:?}", user).to_lowercase()
+                );
                 assert_eq!(ast.0.to_lowercase(), format!("{:?}", asset).to_lowercase());
                 assert_eq!(amt, 1_000_000_000_000_000_000);
                 assert_eq!(block_number, 42);
@@ -152,10 +163,20 @@ mod tests {
         let mut log = Log::default();
         log.inner.data = raw_log;
 
-        let decoded = decode_log(&log, 43, "0xtxhash2").expect("decode").expect("event");
+        let decoded = decode_log(&log, 43, "0xtxhash2")
+            .expect("decode")
+            .expect("event");
         match decoded {
-            ChainEvent::Borrow { account, amount: amt, block_number, tx_hash } => {
-                assert_eq!(account.0.to_lowercase(), format!("{:?}", user).to_lowercase());
+            ChainEvent::Borrow {
+                account,
+                amount: amt,
+                block_number,
+                tx_hash,
+            } => {
+                assert_eq!(
+                    account.0.to_lowercase(),
+                    format!("{:?}", user).to_lowercase()
+                );
                 assert_eq!(amt, 500_000);
                 assert_eq!(block_number, 43);
                 assert_eq!(tx_hash, "0xtxhash2");
@@ -170,16 +191,25 @@ mod tests {
         let price = uint!(2_500_000_000_000_000_000_U256);
         let timestamp = uint!(1_700_000_000_U256);
 
-        let price_event = PriceUpdated { asset, price, timestamp };
+        let price_event = PriceUpdated {
+            asset,
+            price,
+            timestamp,
+        };
         let raw_log = price_event.encode_log_data();
 
         let mut log = Log::default();
         log.inner.data = raw_log;
 
-        let decoded = decode_log(&log, 44, "0xtxhash3").expect("decode").expect("event");
+        let decoded = decode_log(&log, 44, "0xtxhash3")
+            .expect("decode")
+            .expect("event");
         match decoded {
             ChainEvent::PriceUpdated(oracle_price) => {
-                assert_eq!(oracle_price.asset.0.to_lowercase(), format!("{:?}", asset).to_lowercase());
+                assert_eq!(
+                    oracle_price.asset.0.to_lowercase(),
+                    format!("{:?}", asset).to_lowercase()
+                );
                 assert_eq!(oracle_price.price_wad, 2_500_000_000_000_000_000);
                 assert_eq!(oracle_price.timestamp, 1_700_000_000);
                 assert_eq!(oracle_price.block_number, 44);

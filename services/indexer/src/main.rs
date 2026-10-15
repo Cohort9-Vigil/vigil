@@ -2,18 +2,21 @@
 //! Subscribes to EVM logs from Anvil/RPC, indexes borrower position updates,
 //! handles chain reorgs, and streams events to NATS JetStream.
 
-use std::time::Duration;
 use alloy::providers::Provider;
 use anyhow::Result;
 use indexer::listener::BlockIngestor;
 use indexer::publisher::NatsJetStreamPublisher;
+use std::time::Duration;
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,indexer=debug".into()))
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,indexer=debug".into()),
+        )
         .with(tracing_subscriber::fmt::layer().json())
         .init();
 
@@ -21,7 +24,8 @@ async fn main() -> Result<()> {
 
     let rpc_url = std::env::var("RPC_URL").unwrap_or_else(|_| "http://127.0.0.1:8545".into());
     let nats_url = std::env::var("NATS_URL").unwrap_or_else(|_| "nats://127.0.0.1:4222".into());
-    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/vigil".into());
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:postgres@localhost:5432/vigil".into());
     let poll_interval_ms: u64 = std::env::var("POLL_INTERVAL_MS")
         .ok()
         .and_then(|v| v.parse().ok())

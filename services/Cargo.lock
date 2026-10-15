@@ -5175,12 +5175,16 @@ dependencies = [
 name = "risk-engine"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "anyhow",
  "async-nats",
+ "chrono",
  "common",
+ "futures",
  "serde",
  "serde_json",
  "sqlx",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
  "tracing-subscriber",
