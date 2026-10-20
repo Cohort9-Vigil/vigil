@@ -1,5 +1,6 @@
 {
   "chainId": 11155111,
+  "deployBlock": 11913170,
   "eightDecimalToken": "0x2E301949D27B925FF5d166c3c6573bd6F28ab2ff",
   "eightDecimalTokenAmm": "0x9586c8b3E57b95e5c4ce57B9F614342C34eaf74B",
   "eightDecimalTokenFeed": "0x8b8F7Bb3B15053bAa9d50e024362045aa6Ccc63D",

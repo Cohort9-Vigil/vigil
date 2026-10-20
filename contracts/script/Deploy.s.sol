@@ -31,6 +31,9 @@ contract Deploy is Script {
     uint16 constant MAX_DEVIATION_BPS = 500;
     uint256 constant FEED_MAX_STALENESS = 1 days;
 
+    // Head of the chain just before the first deployment transaction. Services start scanning logs from here.
+    uint256 deployBlock;
+
     struct Collateral {
         IERC20Metadata token;
         MockChainlinkFeed feed;
@@ -38,6 +41,7 @@ contract Deploy is Script {
     }
 
     function run() external {
+        deployBlock = block.number;
         vm.startBroadcast();
 
         MockERC20 stablecoin = new MockERC20("Vigil USD", "vUSD", 6);
@@ -126,6 +130,7 @@ contract Deploy is Script {
     ) internal {
         string memory json = "deployment";
         vm.serializeUint(json, "chainId", block.chainid);
+        vm.serializeUint(json, "deployBlock", deployBlock);
         vm.serializeAddress(json, "pool", address(pool));
         vm.serializeAddress(json, "settlement", address(settlement));
         vm.serializeAddress(json, "oracle", address(oracle));
