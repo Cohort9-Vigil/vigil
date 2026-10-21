@@ -35,6 +35,124 @@ pub struct TraceContext {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChainEvent {
+    // --- VigilPool Contract Events ---
+    Supplied {
+        account: Address,
+        amount: u128,
+        scaled_amount: u128,
+        block_number: u64,
+        tx_hash: String,
+    },
+    SupplyWithdrawn {
+        account: Address,
+        amount: u128,
+        scaled_amount: u128,
+        block_number: u64,
+        tx_hash: String,
+    },
+    CollateralDeposited {
+        account: Address,
+        asset: Address,
+        amount: u128,
+        block_number: u64,
+        tx_hash: String,
+    },
+    CollateralWithdrawn {
+        account: Address,
+        asset: Address,
+        amount: u128,
+        block_number: u64,
+        tx_hash: String,
+    },
+    CollateralEnabledChanged {
+        account: Address,
+        asset: Address,
+        enabled: bool,
+        block_number: u64,
+        tx_hash: String,
+    },
+    Borrowed {
+        account: Address,
+        amount: u128,
+        scaled_amount: u128,
+        block_number: u64,
+        tx_hash: String,
+    },
+    Repaid {
+        account: Address,
+        amount: u128,
+        scaled_amount: u128,
+        block_number: u64,
+        tx_hash: String,
+    },
+    Liquidated {
+        borrower: Address,
+        liquidator: Address,
+        collateral_asset: Address,
+        repay_amount: u128,
+        collateral_amount: u128,
+        block_number: u64,
+        tx_hash: String,
+    },
+    BadDebtWrittenOff {
+        borrower: Address,
+        covered_by_reserve: u128,
+        deficit: u128,
+        block_number: u64,
+        tx_hash: String,
+    },
+    InterestAccrued {
+        borrow_index: u128,
+        liquidity_index: u128,
+        reserve_increase: u128,
+        block_number: u64,
+        tx_hash: String,
+    },
+    CollateralListed {
+        asset: Address,
+        id: u8,
+        liquidation_threshold_bps: u16,
+        block_number: u64,
+        tx_hash: String,
+    },
+
+    // --- LiquidationSettlement Contract Events ---
+    AuctionStarted {
+        borrower: Address,
+        start_block: u64,
+        block_number: u64,
+        tx_hash: String,
+    },
+    AuctionReset {
+        borrower: Address,
+        block_number: u64,
+        tx_hash: String,
+    },
+    LiquidationExecuted {
+        borrower: Address,
+        liquidator: Address,
+        collateral_asset: Address,
+        repay_amount: u128,
+        collateral_seized: u128,
+        bonus_bps: u128,
+        block_number: u64,
+        tx_hash: String,
+    },
+    NonceUsed {
+        liquidator: Address,
+        nonce: u128,
+        block_number: u64,
+        tx_hash: String,
+    },
+    BadDebtSettled {
+        borrower: Address,
+        covered_by_reserve: u128,
+        deficit: u128,
+        block_number: u64,
+        tx_hash: String,
+    },
+
+    // --- Legacy / Generic Protocol Events ---
     Deposit {
         account: Address,
         asset: Address,
@@ -64,6 +182,98 @@ pub enum ChainEvent {
         tx_hash: String,
     },
     PriceUpdated(OraclePrice),
+}
+
+impl ChainEvent {
+    pub fn event_type(&self) -> &'static str {
+        match self {
+            Self::Supplied { .. } => "Supplied",
+            Self::SupplyWithdrawn { .. } => "SupplyWithdrawn",
+            Self::CollateralDeposited { .. } => "CollateralDeposited",
+            Self::CollateralWithdrawn { .. } => "CollateralWithdrawn",
+            Self::CollateralEnabledChanged { .. } => "CollateralEnabledChanged",
+            Self::Borrowed { .. } => "Borrowed",
+            Self::Repaid { .. } => "Repaid",
+            Self::Liquidated { .. } => "Liquidated",
+            Self::BadDebtWrittenOff { .. } => "BadDebtWrittenOff",
+            Self::InterestAccrued { .. } => "InterestAccrued",
+            Self::CollateralListed { .. } => "CollateralListed",
+            Self::AuctionStarted { .. } => "AuctionStarted",
+            Self::AuctionReset { .. } => "AuctionReset",
+            Self::LiquidationExecuted { .. } => "LiquidationExecuted",
+            Self::NonceUsed { .. } => "NonceUsed",
+            Self::BadDebtSettled { .. } => "BadDebtSettled",
+            Self::Deposit { .. } => "Deposit",
+            Self::Borrow { .. } => "Borrow",
+            Self::Repay { .. } => "Repay",
+            Self::LiquidationCall { .. } => "LiquidationCall",
+            Self::PriceUpdated(_) => "PriceUpdated",
+        }
+    }
+
+    pub fn account_str(&self) -> Option<String> {
+        match self {
+            Self::Supplied { account, .. }
+            | Self::SupplyWithdrawn { account, .. }
+            | Self::CollateralDeposited { account, .. }
+            | Self::CollateralWithdrawn { account, .. }
+            | Self::CollateralEnabledChanged { account, .. }
+            | Self::Borrowed { account, .. }
+            | Self::Repaid { account, .. }
+            | Self::Deposit { account, .. }
+            | Self::Borrow { account, .. }
+            | Self::Repay { account, .. } => Some(account.0.clone()),
+            Self::Liquidated { borrower, .. }
+            | Self::BadDebtWrittenOff { borrower, .. }
+            | Self::AuctionStarted { borrower, .. }
+            | Self::AuctionReset { borrower, .. }
+            | Self::LiquidationExecuted { borrower, .. }
+            | Self::BadDebtSettled { borrower, .. } => Some(borrower.0.clone()),
+            Self::NonceUsed { liquidator, .. } => Some(liquidator.0.clone()),
+            Self::LiquidationCall { user, .. } => Some(user.0.clone()),
+            Self::InterestAccrued { .. }
+            | Self::CollateralListed { .. }
+            | Self::PriceUpdated(_) => None,
+        }
+    }
+
+    pub fn asset_str(&self) -> Option<String> {
+        match self {
+            Self::CollateralDeposited { asset, .. }
+            | Self::CollateralWithdrawn { asset, .. }
+            | Self::CollateralEnabledChanged { asset, .. }
+            | Self::CollateralListed { asset, .. }
+            | Self::Deposit { asset, .. } => Some(asset.0.clone()),
+            Self::Liquidated { collateral_asset, .. }
+            | Self::LiquidationExecuted { collateral_asset, .. }
+            | Self::LiquidationCall { collateral_asset, .. } => Some(collateral_asset.0.clone()),
+            Self::PriceUpdated(p) => Some(p.asset.0.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn amount_str(&self) -> Option<String> {
+        match self {
+            Self::Supplied { amount, .. }
+            | Self::SupplyWithdrawn { amount, .. }
+            | Self::CollateralDeposited { amount, .. }
+            | Self::CollateralWithdrawn { amount, .. }
+            | Self::Borrowed { amount, .. }
+            | Self::Repaid { amount, .. }
+            | Self::Deposit { amount, .. }
+            | Self::Borrow { amount, .. }
+            | Self::Repay { amount, .. } => Some(amount.to_string()),
+            Self::Liquidated { repay_amount, .. }
+            | Self::LiquidationExecuted { repay_amount, .. } => Some(repay_amount.to_string()),
+            Self::BadDebtWrittenOff { deficit, .. }
+            | Self::BadDebtSettled { deficit, .. } => Some(deficit.to_string()),
+            Self::InterestAccrued { borrow_index, .. } => Some(borrow_index.to_string()),
+            Self::NonceUsed { nonce, .. } => Some(nonce.to_string()),
+            Self::LiquidationCall { debt_to_cover, .. } => Some(debt_to_cover.to_string()),
+            Self::PriceUpdated(p) => Some(p.price_wad.to_string()),
+            _ => None,
+        }
+    }
 }
 
 /// Enriched envelope for forward protocol events published by the Indexer (RS-01, RS-04).

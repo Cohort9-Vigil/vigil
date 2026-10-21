@@ -7,6 +7,7 @@
 
 use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Result};
+use common::events::IndexedEvent;
 use sqlx::{PgPool, Row};
 use tracing::{debug, info};
 
@@ -33,6 +34,9 @@ pub trait CursorStore: Send + Sync {
         parent_hash: &str,
         timestamp: u64,
     ) -> Result<()>;
+
+    /// Saves newly indexed chain events into PostgreSQL for direct queryability.
+    async fn save_events(&self, events: &[IndexedEvent]) -> Result<()>;
 
     /// Marks a range of blocks as ORPHANED during a chain reorganization.
     async fn mark_reorged(&self, from_block: u64, to_block: u64) -> Result<()>;
@@ -62,7 +66,7 @@ impl PostgresCursorStore {
 
     /// Idempotently ensures the required schema tables exist.
     pub async fn init_schema(&self) -> Result<()> {
-        sqlx::query(
+        let statements = [
             r#"
             CREATE TABLE IF NOT EXISTS blocks (
                 block_number BIGINT PRIMARY KEY,
@@ -71,15 +75,17 @@ impl PostgresCursorStore {
                 timestamp BIGINT NOT NULL,
                 is_reorged BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMPTZ DEFAULT NOW()
-            );
-
+            )
+            "#,
+            r#"
             CREATE TABLE IF NOT EXISTS indexer_cursor (
                 id VARCHAR(32) PRIMARY KEY DEFAULT 'default',
                 last_processed_block BIGINT NOT NULL,
                 last_processed_hash VARCHAR(66) NOT NULL,
                 updated_at TIMESTAMPTZ DEFAULT NOW()
-            );
-
+            )
+            "#,
+            r#"
             CREATE TABLE IF NOT EXISTS cursor_history (
                 block_number BIGINT NOT NULL,
                 block_hash VARCHAR(66) NOT NULL,
@@ -87,14 +93,46 @@ impl PostgresCursorStore {
                 status VARCHAR(32) NOT NULL DEFAULT 'CANONICAL',
                 updated_at TIMESTAMPTZ DEFAULT NOW(),
                 PRIMARY KEY (block_number, block_hash)
-            );
+            )
+            "#,
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_cursor_history_status ON cursor_history(status)
+            "#,
+            r#"
+            CREATE TABLE IF NOT EXISTS indexed_events (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                trace_id VARCHAR(64) NOT NULL,
+                block_number BIGINT NOT NULL,
+                block_hash VARCHAR(66) NOT NULL,
+                tx_hash VARCHAR(66) NOT NULL,
+                log_index BIGINT NOT NULL,
+                event_type VARCHAR(32) NOT NULL,
+                account VARCHAR(42),
+                asset VARCHAR(42),
+                amount VARCHAR(78),
+                data JSONB NOT NULL,
+                timestamp BIGINT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                CONSTRAINT uq_indexed_event_log UNIQUE (block_hash, log_index)
+            )
+            "#,
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_indexed_events_type ON indexed_events(event_type)
+            "#,
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_indexed_events_account ON indexed_events(account)
+            "#,
+            r#"
+            CREATE INDEX IF NOT EXISTS idx_indexed_events_block ON indexed_events(block_number)
+            "#,
+        ];
 
-            CREATE INDEX IF NOT EXISTS idx_cursor_history_status ON cursor_history(status);
-            "#
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| anyhow!("Failed to initialize cursor schema: {e}"))?;
+        for stmt in statements {
+            sqlx::query(stmt)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| anyhow!("Failed to initialize cursor schema: {e}"))?;
+        }
 
         info!("Postgres cursor schema verified");
         Ok(())
@@ -205,6 +243,45 @@ impl CursorStore for PostgresCursorStore {
             .map_err(|e| anyhow!("Failed to commit cursor transaction: {e}"))?;
 
         debug!(block_number, %block_hash, "Committed block cursor to PostgreSQL");
+        Ok(())
+    }
+
+    async fn save_events(&self, events: &[IndexedEvent]) -> Result<()> {
+        if events.is_empty() {
+            return Ok(());
+        }
+
+        for evt in events {
+            let event_type = evt.event.event_type();
+            let account = evt.event.account_str();
+            let asset = evt.event.asset_str();
+            let amount = evt.event.amount_str();
+            let data_json = serde_json::to_value(&evt.event).unwrap_or_default();
+
+            sqlx::query(
+                r#"
+                INSERT INTO indexed_events (trace_id, block_number, block_hash, tx_hash, log_index, event_type, account, asset, amount, data, timestamp)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                ON CONFLICT (block_hash, log_index) DO NOTHING
+                "#
+            )
+            .bind(&evt.trace_id)
+            .bind(evt.block_number as i64)
+            .bind(&evt.block_hash)
+            .bind(&evt.tx_hash)
+            .bind(evt.log_index as i64)
+            .bind(event_type)
+            .bind(account)
+            .bind(asset)
+            .bind(amount)
+            .bind(data_json)
+            .bind(evt.timestamp as i64)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| anyhow!("Failed to insert indexed event {}: {e}", evt.trace_id))?;
+        }
+
+        debug!(count = events.len(), "Persisted indexed events to PostgreSQL");
         Ok(())
     }
 
@@ -331,6 +408,10 @@ impl CursorStore for MockCursorStore {
         });
         recs.sort_by_key(|r| r.block_number);
 
+        Ok(())
+    }
+
+    async fn save_events(&self, _events: &[IndexedEvent]) -> Result<()> {
         Ok(())
     }
 

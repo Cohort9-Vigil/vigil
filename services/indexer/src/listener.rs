@@ -26,6 +26,7 @@ pub struct BlockIngestor<P, E, C = MockCursorStore> {
     pub ring: ReorgRingBuffer,
     pub last_processed_block: Option<u64>,
     pub metrics: Metrics,
+    pub target_addresses: Vec<alloy::primitives::Address>,
 }
 
 impl<E: EventPublisher> BlockIngestor<(), E, MockCursorStore> {
@@ -49,6 +50,7 @@ impl<P: Provider + Clone + 'static, E: EventPublisher> BlockIngestor<P, E, MockC
             ring: ReorgRingBuffer::new(ring_capacity),
             last_processed_block: None,
             metrics: Metrics::new(),
+            target_addresses: Vec::new(),
         }
     }
 }
@@ -63,12 +65,29 @@ impl<P: Provider + Clone + 'static, E: EventPublisher, C: CursorStore> BlockInge
             ring: self.ring,
             last_processed_block: self.last_processed_block,
             metrics: self.metrics,
+            target_addresses: self.target_addresses,
         }
     }
 
     /// Attaches shared metrics.
     pub fn with_metrics(mut self, metrics: Metrics) -> Self {
         self.metrics = metrics;
+        self
+    }
+
+    /// Configures an optional target contract address to filter logs (e.g. VigilPool).
+    pub fn with_target_address(mut self, target_address: Option<alloy::primitives::Address>) -> Self {
+        if let Some(addr) = target_address {
+            if !self.target_addresses.contains(&addr) {
+                self.target_addresses.push(addr);
+            }
+        }
+        self
+    }
+
+    /// Configures multiple target contract addresses to filter logs (e.g. VigilPool and LiquidationSettlement).
+    pub fn with_target_addresses(mut self, target_addresses: Vec<alloy::primitives::Address>) -> Self {
+        self.target_addresses = target_addresses;
         self
     }
 
@@ -241,12 +260,20 @@ impl<P: Provider + Clone + 'static, E: EventPublisher, C: CursorStore> BlockInge
     ) -> Result<(Vec<RetractEvent>, Vec<IndexedEvent>)> {
         // Query logs strictly by block hash (Rule 2)
         let b256_hash = block.header.hash;
-        let filter = Filter::new().at_block_hash(b256_hash);
+        let mut filter = Filter::new().at_block_hash(b256_hash);
+        if !self.target_addresses.is_empty() {
+            filter = filter.address(self.target_addresses.clone());
+        }
         let logs = self
             .provider
             .get_logs(&filter)
             .await
             .map_err(|e| anyhow!("Failed to fetch logs for blockHash {block_hash}: {e}"))?;
+
+        // Rule 4: Preserve log order within a block.
+        // Risk Engine rules depend on (blockNumber, logIndex) order.
+        let mut logs = logs;
+        logs.sort_by_key(|l| l.log_index.unwrap_or(0));
 
         let mut emitted_events = Vec::new();
         for log in logs {
@@ -274,12 +301,23 @@ impl<P: Provider + Clone + 'static, E: EventPublisher, C: CursorStore> BlockInge
             }
         }
 
+        if !emitted_events.is_empty() {
+            info!(
+                block_number,
+                block_hash = %block_hash,
+                event_count = emitted_events.len(),
+                events = ?emitted_events.iter().map(|e| e.event.event_type()).collect::<Vec<_>>(),
+                "Successfully indexed protocol events"
+            );
+        }
+
         // 1. Publish to NATS JetStream and await ack (Rule 3)
         for evt in &emitted_events {
             self.publisher.publish_indexed_event(evt).await?;
         }
 
-        // 2. Commit cursor to Postgres ONLY AFTER NATS ack (Rule 3 & RS-03)
+        // 2. Commit events and cursor to Postgres ONLY AFTER NATS ack (Rule 3 & RS-03)
+        self.cursor_store.save_events(&emitted_events).await?;
         self.cursor_store.commit_block(block_number, block_hash, parent_hash, block_timestamp).await?;
 
         // 3. Record in 10-block sliding window
@@ -294,6 +332,9 @@ impl<P: Provider + Clone + 'static, E: EventPublisher, C: CursorStore> BlockInge
         self.last_processed_block = Some(block_number);
         self.metrics.set_last_block(block_number);
         self.metrics.inc_events(emitted_events.len() as u64);
+        for evt in &emitted_events {
+            self.metrics.inc_event_by_type(evt.event.event_type());
+        }
 
         Ok((Vec::new(), emitted_events))
     }

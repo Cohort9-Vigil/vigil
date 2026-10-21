@@ -67,6 +67,7 @@ services:
     container_name: vigil-indexer
     environment:
       RPC_URL: "http://anvil:8545"
+      POOL_ADDRESS: "${POOL_ADDRESS:-0xecF5622D592293c960bFec2A948dF9e8B1323358}"
       DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-vigil}"
       NATS_URL: "nats://nats:4222"
       RUST_LOG: "info,indexer=debug"
