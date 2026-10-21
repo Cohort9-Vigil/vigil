@@ -1,21 +1,13 @@
-FROM rust:alpine AS builder
+# Builds one Vigil service. Select it with --build-arg BIN=vigil-indexer (or risk-engine, liquidator).
+FROM rust:1-bookworm AS build
+WORKDIR /src
+COPY services/ services/
+COPY migrations/ migrations/
+ARG BIN
+RUN cd services && cargo build --release -p ${BIN}
 
-WORKDIR /app
-RUN apk add --no-cache musl-dev
-
-COPY Cargo.toml Cargo.lock* ./
-COPY common ./common
-COPY indexer ./indexer
-COPY risk-engine ./risk-engine
-COPY liquidator ./liquidator
-
-RUN cargo build --release -p indexer
-
-FROM alpine:3.20
-
-RUN apk add --no-cache ca-certificates
-WORKDIR /app
-
-COPY --from=builder /app/target/release/indexer /usr/local/bin/indexer
-
-ENTRYPOINT ["indexer"]
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+ARG BIN
+COPY --from=build /src/services/target/release/${BIN} /usr/local/bin/service
+ENTRYPOINT ["/usr/local/bin/service"]

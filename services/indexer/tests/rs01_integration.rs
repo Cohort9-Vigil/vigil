@@ -1,3 +1,5 @@
+extern crate vigil_indexer as indexer;
+
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -45,7 +47,11 @@ impl AnvilRunner {
         }
         std::thread::sleep(Duration::from_millis(150));
 
-        Self { child, rpc_url, port }
+        Self {
+            child,
+            rpc_url,
+            port,
+        }
     }
 }
 
@@ -160,16 +166,27 @@ async fn test_rs01_live_anvil_ingestion_and_decoding() {
 
     // 3. Instantiate BlockIngestor with MockEventPublisher
     let publisher = MockEventPublisher::new();
-    let mut ingestor =
-        BlockIngestor::connect_http(&anvil.rpc_url, publisher.clone(), 10).expect("connect ingestor");
+    let mut ingestor = BlockIngestor::connect_http(&anvil.rpc_url, publisher.clone(), 10)
+        .expect("connect ingestor");
 
-    let latest_block = ingestor.provider.get_block_number().await.expect("get block number");
+    let latest_block = ingestor
+        .provider
+        .get_block_number()
+        .await
+        .expect("get block number");
     println!("Latest block on Anvil: {latest_block}");
 
     // 4. Ingest from block 1 up to latest block
-    let (_retracts, indexed) = ingestor.ingest_hint(latest_block).await.expect("ingest hint");
+    let (_retracts, indexed) = ingestor
+        .ingest_hint(latest_block)
+        .await
+        .expect("ingest hint");
     let published = publisher.get_indexed_events();
-    println!("Indexed len: {}, Published len: {}", indexed.len(), published.len());
+    println!(
+        "Indexed len: {}, Published len: {}",
+        indexed.len(),
+        published.len()
+    );
     for p in &published {
         println!("Emitted event: {:?}", p.event);
     }
@@ -188,17 +205,22 @@ async fn test_rs01_live_anvil_ingestion_and_decoding() {
         );
 
         match &evt.event {
-            ChainEvent::Deposit { account, asset, amount, .. } => {
+            ChainEvent::Deposit {
+                account,
+                asset,
+                amount,
+                ..
+            } => {
                 if account.0.eq_ignore_ascii_case(user1) && asset.0.eq_ignore_ascii_case(asset1) {
-                    assert_eq!(*amount, 5_000_000_000_000_000_000);
+                    assert_eq!(amount, 5_000_000_000_000_000_000);
                     found_deposit = true;
                 }
             }
-            ChainEvent::Borrow { account, amount, .. } => {
-                if account.0.eq_ignore_ascii_case(user1) {
-                    assert_eq!(*amount, 1_200_000_000_000_000_000);
-                    found_borrow = true;
-                }
+            ChainEvent::Borrow {
+                account, amount, ..
+            } if account.0.eq_ignore_ascii_case(user1) => {
+                assert_eq!(amount, 1_200_000_000_000_000_000);
+                found_borrow = true;
             }
             ChainEvent::PriceUpdated(p) if p.asset.0.eq_ignore_ascii_case(asset1) => {
                 assert_eq!(p.price_wad, 2_500_000_000_000_000_000);

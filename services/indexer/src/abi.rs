@@ -1,10 +1,10 @@
 //! Contract event definitions and decoding using alloy sol! macro.
 //! Real events are generated from the official contract ABIs (VigilPool and LiquidationSettlement).
 
-use alloy::sol;
-use alloy::sol_types::SolEvent;
 use alloy::primitives::U256;
 use alloy::rpc::types::eth::Log;
+use alloy::sol;
+use alloy::sol_types::SolEvent;
 use anyhow::{anyhow, Result};
 use common::events::ChainEvent;
 use common::types::{Address, OraclePrice};
@@ -62,11 +62,7 @@ sol! {
 
 /// Helper to decode an EVM log into a strongly-typed `ChainEvent`.
 /// Decodes all official VigilPool and LiquidationSettlement protocol events.
-pub fn decode_log(
-    log: &Log,
-    block_number: u64,
-    tx_hash: &str,
-) -> Result<Option<ChainEvent>> {
+pub fn decode_log(log: &Log, block_number: u64, tx_hash: &str) -> Result<Option<ChainEvent>> {
     let topics = log.topics();
     if topics.is_empty() {
         return Ok(None);
@@ -340,7 +336,11 @@ mod tests {
         let asset = address!("0000000000000000000000000000000000000002");
         let amount = uint!(1_000_000_000_000_000_000_U256);
 
-        let event = CollateralDeposited { account, asset, amount };
+        let event = CollateralDeposited {
+            account,
+            asset,
+            amount,
+        };
         let raw_log = event.encode_log_data();
 
         let mut log = Log::default();
@@ -348,7 +348,13 @@ mod tests {
 
         let decoded = decode_log(&log, 42, "0xtx1").expect("decode").expect("event");
         match decoded {
-            ChainEvent::CollateralDeposited { account: acc, asset: ast, amount: amt, block_number, tx_hash } => {
+            ChainEvent::CollateralDeposited {
+                account: acc,
+                asset: ast,
+                amount: amt,
+                block_number,
+                tx_hash,
+            } => {
                 assert_eq!(acc.0.to_lowercase(), format!("{:?}", account).to_lowercase());
                 assert_eq!(ast.0.to_lowercase(), format!("{:?}", asset).to_lowercase());
                 assert_eq!(amt, 1_000_000_000_000_000_000);
@@ -365,7 +371,11 @@ mod tests {
         let amount = uint!(500_000_U256);
         let scaled_amount = uint!(480_000_U256);
 
-        let event = Borrowed { account, amount, scaledAmount: scaled_amount };
+        let event = Borrowed {
+            account,
+            amount,
+            scaledAmount: scaled_amount,
+        };
         let raw_log = event.encode_log_data();
 
         let mut log = Log::default();
@@ -373,7 +383,13 @@ mod tests {
 
         let decoded = decode_log(&log, 43, "0xtx2").expect("decode").expect("event");
         match decoded {
-            ChainEvent::Borrowed { account: acc, amount: amt, scaled_amount: s_amt, block_number, tx_hash } => {
+            ChainEvent::Borrowed {
+                account: acc,
+                amount: amt,
+                scaled_amount: s_amt,
+                block_number,
+                tx_hash,
+            } => {
                 assert_eq!(acc.0.to_lowercase(), format!("{:?}", account).to_lowercase());
                 assert_eq!(amt, 500_000);
                 assert_eq!(s_amt, 480_000);
@@ -402,7 +418,13 @@ mod tests {
 
         let decoded = decode_log(&log, 44, "0xtx3").expect("decode").expect("event");
         match decoded {
-            ChainEvent::InterestAccrued { borrow_index: bi, liquidity_index: li, reserve_increase: ri, block_number, tx_hash } => {
+            ChainEvent::InterestAccrued {
+                borrow_index: bi,
+                liquidity_index: li,
+                reserve_increase: ri,
+                block_number,
+                tx_hash,
+            } => {
                 assert_eq!(bi, 1_050_000_000_000_000_000_000_000_000);
                 assert_eq!(li, 1_020_000_000_000_000_000_000_000_000);
                 assert_eq!(ri, 5_000_000);
@@ -418,7 +440,10 @@ mod tests {
         let borrower = address!("0000000000000000000000000000000000000009");
         let start_block = uint!(500_U256);
 
-        let event = AuctionStarted { borrower, startBlock: start_block };
+        let event = AuctionStarted {
+            borrower,
+            startBlock: start_block,
+        };
         let raw_log = event.encode_log_data();
 
         let mut log = Log::default();
@@ -426,7 +451,12 @@ mod tests {
 
         let decoded = decode_log(&log, 500, "0xtx4").expect("decode").expect("event");
         match decoded {
-            ChainEvent::AuctionStarted { borrower: b, start_block: sb, block_number, tx_hash } => {
+            ChainEvent::AuctionStarted {
+                borrower: b,
+                start_block: sb,
+                block_number,
+                tx_hash,
+            } => {
                 assert_eq!(b.0.to_lowercase(), format!("{:?}", borrower).to_lowercase());
                 assert_eq!(sb, 500);
                 assert_eq!(block_number, 500);

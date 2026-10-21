@@ -5,6 +5,8 @@
 //! and a propagated trace_id. Required verification test: Unit tests on message schema
 //! and NATS header injection."
 
+extern crate vigil_indexer as indexer;
+
 use common::events::{ChainEvent, IdempotencyKey, IndexedEvent, RetractEvent};
 use common::types::Address;
 use indexer::publisher::{EventPublisher, MockEventPublisher};

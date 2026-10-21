@@ -1,33 +1,30 @@
 [workspace]
 resolver = "2"
-members = [
-    "common",
-    "indexer",
-    "risk-engine",
-    "liquidator",
-]
+members = ["common", "indexer", "risk-engine", "liquidator", "scenario", "gateway"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-authors = ["Cohort9-Vigil Team"]
-license = "MIT OR Apache-2.0"
+license = "MIT"
+rust-version = "1.85"
 
 [workspace.dependencies]
-tokio = { version = "1.38", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-async-nats = "0.35"
-sqlx = { version = "0.7", default-features = false, features = ["runtime-tokio-rustls", "postgres", "macros", "chrono", "bigdecimal"] }
+alloy = { version = "2.5", features = ["signer-keystore"] }
+anyhow = "1"
+async-nats = "0.50"
+async-trait = "0.1"
+axum = "0.8"
+clap = { version = "4", features = ["derive", "env"] }
+futures = "0.3"
+proptest = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.9", default-features = false, features = ["postgres", "runtime-tokio", "migrate", "macros"] }
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
+tower-http = { version = "0.6", features = ["fs", "cors"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-ethers = { version = "2.0", default-features = false, features = ["rustls"] }
-alloy = { version = "2.5", features = ["full"] }
-anyhow = "1.0"
-thiserror = "1.0"
-rust_decimal = { version = "1.35", features = ["maths"] }
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1.8", features = ["v4", "serde"] }
 
-# Internal workspace crates
-common = { path = "common" }
+[profile.dev]
+debug = 1

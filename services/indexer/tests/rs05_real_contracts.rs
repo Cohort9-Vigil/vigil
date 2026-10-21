@@ -1,5 +1,6 @@
+extern crate vigil_indexer as indexer;
+
 use std::process::Command;
-use std::time::Duration;
 
 use alloy::providers::Provider;
 use common::events::ChainEvent;
@@ -140,7 +141,7 @@ async fn test_real_contracts_deposit_and_borrow() {
         ChainEvent::CollateralDeposited { account, asset, amount, .. } => {
             account.0.eq_ignore_ascii_case(test_user_addr)
                 && asset.0.eq_ignore_ascii_case(collateral_str)
-                && amount == &2_000_000_000
+                && *amount == 2_000_000_000
         }
         _ => false,
     });
@@ -148,7 +149,7 @@ async fn test_real_contracts_deposit_and_borrow() {
 
     let has_borrow = published.iter().any(|evt| match &evt.event {
         ChainEvent::Borrowed { account, amount, .. } => {
-            account.0.eq_ignore_ascii_case(test_user_addr) && amount == &5_000_000
+            account.0.eq_ignore_ascii_case(test_user_addr) && *amount == 5_000_000
         }
         _ => false,
     });

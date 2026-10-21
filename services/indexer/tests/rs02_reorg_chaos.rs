@@ -7,6 +7,8 @@
 //! 4. Retract events fire in strict reverse chronological order for orphaned logs.
 //! 5. New canonical branch logs are ingested with zero gaps.
 
+extern crate vigil_indexer as indexer;
+
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -54,7 +56,11 @@ impl AnvilRunner {
         }
         std::thread::sleep(Duration::from_millis(150));
 
-        Self { child, rpc_url, port }
+        Self {
+            child,
+            rpc_url,
+            port,
+        }
     }
 }
 
@@ -135,7 +141,10 @@ fn evm_snapshot(rpc_url: &str) -> String {
         .expect("call evm_snapshot");
 
     if !output.status.success() {
-        panic!("evm_snapshot failed: {}", String::from_utf8_lossy(&output.stderr));
+        panic!(
+            "evm_snapshot failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     let raw = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -154,7 +163,10 @@ fn evm_revert(rpc_url: &str, snapshot_id: &str) {
         .expect("call evm_revert");
 
     if !output.status.success() {
-        panic!("evm_revert failed: {}", String::from_utf8_lossy(&output.stderr));
+        panic!(
+            "evm_revert failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }
 
@@ -169,8 +181,8 @@ async fn test_rs02_chaos_reorg_2_blocks_with_reverse_retractions() {
     );
 
     let publisher = MockEventPublisher::new();
-    let mut ingestor =
-        BlockIngestor::connect_http(&anvil.rpc_url, publisher.clone(), 10).expect("connect ingestor");
+    let mut ingestor = BlockIngestor::connect_http(&anvil.rpc_url, publisher.clone(), 10)
+        .expect("connect ingestor");
 
     // Step 2: Ingest baseline block 2 with an initial deposit (Common Ancestor)
     let user_a = "0xa0Ee7A142d267C1f36714E4a8F75612F20a79720";
@@ -183,11 +195,18 @@ async fn test_rs02_chaos_reorg_2_blocks_with_reverse_retractions() {
         &[user_a, asset, "1000000"],
     );
 
-    let block_baseline = ingestor.provider.get_block_number().await.expect("block baseline");
+    let block_baseline = ingestor
+        .provider
+        .get_block_number()
+        .await
+        .expect("block baseline");
     println!("Baseline block (common ancestor): {block_baseline}");
 
     // Ingest baseline up to block 2
-    let (_retracts, indexed) = ingestor.ingest_hint(block_baseline).await.expect("ingest baseline");
+    let (_retracts, indexed) = ingestor
+        .ingest_hint(block_baseline)
+        .await
+        .expect("ingest baseline");
     assert!(!indexed.is_empty());
     let ancestor_block_number = ingestor.ring.latest_block_number().unwrap();
     let ancestor_block_hash = ingestor.ring.latest_block().unwrap().block_hash.clone();
@@ -212,22 +231,39 @@ async fn test_rs02_chaos_reorg_2_blocks_with_reverse_retractions() {
         &[user_a, "3000000"],
     );
 
-    let fork_a_head = ingestor.provider.get_block_number().await.expect("fork a head");
+    let fork_a_head = ingestor
+        .provider
+        .get_block_number()
+        .await
+        .expect("fork a head");
     println!("Fork A head: {fork_a_head}");
     assert_eq!(fork_a_head, ancestor_block_number + 2);
 
     // Ingest Fork A into Indexer
-    let (retracts_a, indexed_a) = ingestor.ingest_hint(fork_a_head).await.expect("ingest fork a");
-    assert!(retracts_a.is_empty(), "No retractions expected on linear fork A");
+    let (retracts_a, indexed_a) = ingestor
+        .ingest_hint(fork_a_head)
+        .await
+        .expect("ingest fork a");
+    assert!(
+        retracts_a.is_empty(),
+        "No retractions expected on linear fork A"
+    );
     assert_eq!(indexed_a.len(), 2, "Expected 2 forward events on fork A");
     assert_eq!(ingestor.ring.latest_block_number(), Some(fork_a_head));
-    println!("Fork A ingested into ring buffer. Ring len={}", ingestor.ring.len());
+    println!(
+        "Fork A ingested into ring buffer. Ring len={}",
+        ingestor.ring.len()
+    );
 
     // Step 5: Force 2-Block Chain Reorganization via evm_revert
     println!("Reverting EVM back to snapshot {snapshot_id}...");
     evm_revert(&anvil.rpc_url, &snapshot_id);
 
-    let reverted_block = ingestor.provider.get_block_number().await.expect("reverted block");
+    let reverted_block = ingestor
+        .provider
+        .get_block_number()
+        .await
+        .expect("reverted block");
     println!("Chain height after revert: {reverted_block}");
     assert_eq!(reverted_block, ancestor_block_number);
 
@@ -255,7 +291,11 @@ async fn test_rs02_chaos_reorg_2_blocks_with_reverse_retractions() {
         &[user_b, "9999999"],
     );
 
-    let fork_b_head = ingestor.provider.get_block_number().await.expect("fork b head");
+    let fork_b_head = ingestor
+        .provider
+        .get_block_number()
+        .await
+        .expect("fork b head");
     println!("Fork B new canonical head: {fork_b_head}");
     assert_eq!(fork_b_head, ancestor_block_number + 3);
 
@@ -267,7 +307,8 @@ async fn test_rs02_chaos_reorg_2_blocks_with_reverse_retractions() {
         .expect("ingest fork b hint and resolve reorg");
 
     // Step 8: Assertions on Reorg Recovery
-    println!("Reorg handled! Emitted {} retractions and {} new canonical events",
+    println!(
+        "Reorg handled! Emitted {} retractions and {} new canonical events",
         reorg_retractions.len(),
         new_canonical_events.len()
     );
@@ -282,19 +323,25 @@ async fn test_rs02_chaos_reorg_2_blocks_with_reverse_retractions() {
     // Assertion B: Retractions must be in STRICT REVERSE CHRONOLOGICAL ORDER:
     // 1st: Block 4 Borrow (amount 3000000)
     // 2nd: Block 3 Deposit (amount 2000000)
-    println!("Retraction 0: block {} trace={}", reorg_retractions[0].block_number, reorg_retractions[0].trace_id);
-    println!("Retraction 1: block {} trace={}", reorg_retractions[1].block_number, reorg_retractions[1].trace_id);
+    println!(
+        "Retraction 0: block {} trace={}",
+        reorg_retractions[0].block_number, reorg_retractions[0].trace_id
+    );
+    println!(
+        "Retraction 1: block {} trace={}",
+        reorg_retractions[1].block_number, reorg_retractions[1].trace_id
+    );
 
     assert_eq!(reorg_retractions[0].block_number, ancestor_block_number + 2);
     assert_eq!(reorg_retractions[1].block_number, ancestor_block_number + 1);
 
     match &reorg_retractions[0].original_event {
-        Some(ChainEvent::Borrow { amount, .. }) => assert_eq!(*amount, 3000000),
+        Some(ChainEvent::Borrow { amount, .. }) => assert_eq!(amount, 3000000),
         other => panic!("Expected Borrow in first retraction, got {:?}", other),
     }
 
     match &reorg_retractions[1].original_event {
-        Some(ChainEvent::Deposit { amount, .. }) => assert_eq!(*amount, 2000000),
+        Some(ChainEvent::Deposit { amount, .. }) => assert_eq!(amount, 2000000),
         other => panic!("Expected Deposit in second retraction, got {:?}", other),
     }
 
@@ -305,24 +352,30 @@ async fn test_rs02_chaos_reorg_2_blocks_with_reverse_retractions() {
     // Assertion D: Canonical Fork B events are all ingested (Deposit, Borrow, Repay)
     assert_eq!(new_canonical_events.len(), 3);
     match &new_canonical_events[0].event {
-        ChainEvent::Deposit { amount, account, .. } => {
-            assert_eq!(*amount, 7777777);
+        ChainEvent::Deposit {
+            amount, account, ..
+        } => {
+            assert_eq!(amount, 7777777);
             assert!(account.0.eq_ignore_ascii_case(user_b));
         }
         other => panic!("Expected canonical Deposit, got {:?}", other),
     }
 
     match &new_canonical_events[1].event {
-        ChainEvent::Borrow { amount, account, .. } => {
-            assert_eq!(*amount, 8888888);
+        ChainEvent::Borrow {
+            amount, account, ..
+        } => {
+            assert_eq!(amount, 8888888);
             assert!(account.0.eq_ignore_ascii_case(user_b));
         }
         other => panic!("Expected canonical Borrow, got {:?}", other),
     }
 
     match &new_canonical_events[2].event {
-        ChainEvent::Repay { amount, account, .. } => {
-            assert_eq!(*amount, 9999999);
+        ChainEvent::Repay {
+            amount, account, ..
+        } => {
+            assert_eq!(amount, 9999999);
             assert!(account.0.eq_ignore_ascii_case(user_b));
         }
         other => panic!("Expected canonical Repay, got {:?}", other),
@@ -332,7 +385,10 @@ async fn test_rs02_chaos_reorg_2_blocks_with_reverse_retractions() {
     assert_eq!(ingestor.ring.latest_block_number(), Some(fork_b_head));
     let mut expected_parent = ancestor_block_hash;
     for b_num in (ancestor_block_number + 1)..=fork_b_head {
-        let blk = ingestor.ring.get_block(b_num).expect("block present in ring");
+        let blk = ingestor
+            .ring
+            .get_block(b_num)
+            .expect("block present in ring");
         assert_eq!(
             blk.parent_hash.to_lowercase(),
             expected_parent.to_lowercase(),

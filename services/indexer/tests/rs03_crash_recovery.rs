@@ -8,6 +8,8 @@
 //! "Crash safety between any two lines: If the Indexer crashes after publishing to NATS but before
 //! updating Postgres, it replays the block on restart; downstream consumers deduplicate via (block_hash, log_index)."
 
+extern crate vigil_indexer as indexer;
+
 use std::collections::HashSet;
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};

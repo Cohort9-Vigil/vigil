@@ -6,10 +6,10 @@
 use std::time::Duration;
 use alloy::providers::Provider;
 use anyhow::Result;
-use indexer::cursor::PostgresCursorStore;
-use indexer::listener::BlockIngestor;
-use indexer::publisher::NatsJetStreamPublisher;
-use indexer::telemetry::{start_health_and_metrics_server, Metrics};
+use vigil_indexer::cursor::PostgresCursorStore;
+use vigil_indexer::listener::BlockIngestor;
+use vigil_indexer::publisher::NatsJetStreamPublisher;
+use vigil_indexer::telemetry::{start_health_and_metrics_server, Metrics};
 use tracing::{error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 

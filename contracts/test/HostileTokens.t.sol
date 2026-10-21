@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
+import {Test,console} from "forge-std/Test.sol";
 import {VigilBase} from "./Base.t.sol";
 import {VigilPool} from "../src/core/VigilPool.sol";
 import {FeeOnTransferToken} from "../src/mocks/FeeOnTransferToken.sol";
@@ -8,6 +9,7 @@ import {MockERC20} from "../src/mocks/MockERC20.sol";
 import {NoReturnToken} from "../src/mocks/NoReturnToken.sol";
 import {ReentrantToken} from "../src/mocks/ReentrantToken.sol";
 import {SafeTransfer} from "../src/libraries/SafeTransfer.sol";
+
 
 contract HostileTokensTest is VigilBase {
     // SC-11
@@ -54,13 +56,21 @@ contract HostileTokensTest is VigilBase {
         listToken(address(taxed), 100);
         taxed.mint(borrower, 100 ether);
 
+        console.log("Balance of borrower before is",taxed.balanceOf(borrower));
+        console.log("Balance of Pool before is", taxed.balanceOf(address(pool)));
+
         vm.startPrank(borrower);
         taxed.approve(address(pool), 100 ether);
         pool.depositCollateral(address(taxed), 100 ether);
         vm.stopPrank();
 
+        console.log("Balnance of Borrower After ", taxed.balanceOf(borrower));
+        console.log("Balance of Pool After ____________________",taxed.balanceOf(address(pool)));
+        
         assertEq(taxed.balanceOf(address(pool)), 98 ether);
         assertEq(pool.getCollateralBalance(borrower, address(taxed)), 98 ether);
+
+        
     }
 
     function test_feeOnTransferBorrowLimitUsesTheCreditedAmount() public {
@@ -92,6 +102,129 @@ contract HostileTokensTest is VigilBase {
 
         assertEq(pool.getCollateralBalance(borrower, address(taxed)), 0);
         assertEq(taxed.balanceOf(borrower), 96.04 ether);
+    }
+
+    // Follows the 2 of every 100 on a deposit: it must be burned, not kept by anyone.
+    function test_feeOnTransferDepositBurnsTheFeeAndNobodyKeepsIt() public {
+        FeeOnTransferToken taxed = new FeeOnTransferToken("Taxed", "TAX", 18, 200);
+        listToken(address(taxed), 100);
+        taxed.mint(borrower, 100 ether);
+        uint256 supplyBefore = taxed.totalSupply();
+
+        vm.startPrank(borrower);
+        taxed.approve(address(pool), 100 ether);
+        pool.depositCollateral(address(taxed), 100 ether);
+        vm.stopPrank();
+
+        // Sender paid 100, pool received 98, the missing 2 left circulation.
+        assertEq(taxed.balanceOf(borrower), 0, "borrower sent the full amount");
+        assertEq(taxed.balanceOf(address(pool)), 98 ether, "pool got amount minus fee");
+        assertEq(supplyBefore - taxed.totalSupply(), 2 ether, "fee was burned");
+
+        // The fee did not land with any protocol actor.
+        assertEq(taxed.balanceOf(address(0)), 0, "zero address holds nothing, burn lowers supply");
+        assertEq(taxed.balanceOf(address(this)), 0, "owner got no fee");
+        assertEq(taxed.balanceOf(address(settlement)), 0, "settlement got no fee");
+        assertEq(taxed.balanceOf(address(oracle)), 0, "oracle got no fee");
+        assertEq(taxed.balanceOf(lender), 0, "lender got no fee");
+        assertEq(taxed.balanceOf(liquidator), 0, "liquidator got no fee");
+
+        // Supplies and borrowers are accounted by the pool, so the sum of holders equals total supply.
+        assertEq(
+            taxed.balanceOf(borrower) + taxed.balanceOf(address(pool)),
+            taxed.totalSupply(),
+            "all remaining tokens are with borrower and pool"
+        );
+    }
+
+    // The collateral token fee must never leak into the debt-asset reserve or the pool's books.
+    function test_feeOnTransferFeeIsNotAddedToReserveOrDebtAccounting() public {
+        FeeOnTransferToken taxed = new FeeOnTransferToken("Taxed", "TAX", 18, 200);
+        listToken(address(taxed), 100);
+        taxed.mint(borrower, 100 ether);
+
+        VigilPool.PoolState memory before = pool.poolState();
+        uint256 usdcInPoolBefore = usdc.balanceOf(address(pool));
+
+        vm.startPrank(borrower);
+        taxed.approve(address(pool), 100 ether);
+        pool.depositCollateral(address(taxed), 100 ether);
+        vm.stopPrank();
+
+        VigilPool.PoolState memory afterState = pool.poolState();
+        assertEq(afterState.reserve, before.reserve, "reserve unchanged");
+        assertEq(afterState.deficit, before.deficit, "deficit unchanged");
+        assertEq(afterState.totalScaledSupply, before.totalScaledSupply, "supply shares unchanged");
+        assertEq(afterState.totalScaledDebt, before.totalScaledDebt, "debt shares unchanged");
+        assertEq(usdc.balanceOf(address(pool)), usdcInPoolBefore, "debt asset balance unchanged");
+    }
+
+    // Credited collateral must equal what the pool really holds, no phantom 2 left in the books.
+    function test_feeOnTransferPoolBalanceMatchesCreditedCollateral() public {
+        FeeOnTransferToken taxed = new FeeOnTransferToken("Taxed", "TAX", 18, 200);
+        listToken(address(taxed), 100);
+        taxed.mint(borrower, 100 ether);
+
+        vm.startPrank(borrower);
+        taxed.approve(address(pool), 100 ether);
+        pool.depositCollateral(address(taxed), 100 ether);
+        vm.stopPrank();
+
+        assertEq(
+            pool.getCollateralBalance(borrower, address(taxed)),
+            taxed.balanceOf(address(pool)),
+            "credited equals held"
+        );
+    }
+
+    // Withdrawal pays the fee a second time: 98 leaves the pool, 96.04 arrives, 1.96 is burned.
+    function test_feeOnTransferWithdrawalBurnsTheSecondFee() public {
+        FeeOnTransferToken taxed = new FeeOnTransferToken("Taxed", "TAX", 18, 200);
+        listToken(address(taxed), 100);
+        taxed.mint(borrower, 100 ether);
+
+        vm.startPrank(borrower);
+        taxed.approve(address(pool), 100 ether);
+        pool.depositCollateral(address(taxed), 100 ether);
+        uint256 supplyAfterDeposit = taxed.totalSupply();
+        pool.withdrawCollateral(address(taxed), 98 ether);
+        vm.stopPrank();
+
+        assertEq(taxed.balanceOf(address(pool)), 0, "pool fully emptied");
+        assertEq(taxed.balanceOf(borrower), 96.04 ether, "borrower receives 98 minus 2%");
+        assertEq(supplyAfterDeposit - taxed.totalSupply(), 1.96 ether, "second fee burned");
+        assertEq(100 ether - taxed.totalSupply(), 3.96 ether, "total burned across both legs");
+        assertEq(taxed.balanceOf(address(0)), 0);
+    }
+
+    // Fee rounds down and scales with the configured rate.
+    function testFuzz_feeOnTransferBurnMatchesFeeBps(uint16 feeSeed, uint96 amountSeed) public {
+        uint256 feeBps = bound(feeSeed, 0, 5000);
+        uint256 amount = bound(amountSeed, 1 ether, 1_000_000 ether);
+
+        FeeOnTransferToken taxed = new FeeOnTransferToken("Taxed", "TAX", 18, feeBps);
+        listToken(address(taxed), 100);
+        taxed.mint(borrower, amount);
+
+        vm.startPrank(borrower);
+        taxed.approve(address(pool), amount);
+        pool.depositCollateral(address(taxed), amount);
+        vm.stopPrank();
+
+        uint256 expectedFee = (amount * feeBps) / 10_000;
+        assertEq(taxed.balanceOf(address(pool)), amount - expectedFee, "pool holds amount minus fee");
+        assertEq(taxed.totalSupply(), amount - expectedFee, "burned exactly the fee");
+        assertEq(pool.getCollateralBalance(borrower, address(taxed)), amount - expectedFee, "credit matches");
+        assertEq(taxed.balanceOf(borrower), 0);
+    }
+
+    // Mints and burns are exempt, so minting must not skim a fee to anyone.
+    function test_feeOnTransferMintIsExemptFromTheFee() public {
+        FeeOnTransferToken taxed = new FeeOnTransferToken("Taxed", "TAX", 18, 200);
+        taxed.mint(borrower, 100 ether);
+
+        assertEq(taxed.balanceOf(borrower), 100 ether);
+        assertEq(taxed.totalSupply(), 100 ether);
     }
 
     // SC-13

@@ -1,4 +1,4 @@
-//! Vigil Indexer library crate.
+//! Indexer: ingests blocks and logs, detects reorgs, and publishes events and retractions.
 
 pub mod abi;
 pub mod cursor;
