@@ -9,7 +9,7 @@
 # ------------------------------------------------------------------------------
 # Stage 1: Build stage (official Rust Debian Bookworm image)
 # ------------------------------------------------------------------------------
-FROM rust:1.85-bookworm AS builder
+FROM FROM rust:1.94-bookworm AS builder
 
 WORKDIR /src
 
