@@ -35,7 +35,6 @@ impl NatsJetStreamPublisher {
             subjects: vec![
                 SUBJECT_CHAIN_EVENTS.to_string(),
                 SUBJECT_RETRACT_EVENTS.to_string(),
-                "vigil.events.>".to_string(),
             ],
             duplicate_window: Duration::from_secs(300),
             ..Default::default()

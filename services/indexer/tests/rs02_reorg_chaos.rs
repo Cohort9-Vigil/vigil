@@ -7,6 +7,8 @@
 //! 4. Retract events fire in strict reverse chronological order for orphaned logs.
 //! 5. New canonical branch logs are ingested with zero gaps.
 
+extern crate vigil_indexer as indexer;
+
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -334,12 +336,12 @@ async fn test_rs02_chaos_reorg_2_blocks_with_reverse_retractions() {
     assert_eq!(reorg_retractions[1].block_number, ancestor_block_number + 1);
 
     match &reorg_retractions[0].original_event {
-        Some(ChainEvent::Borrow { amount, .. }) => assert_eq!(*amount, 3000000),
+        Some(ChainEvent::Borrow { amount, .. }) => assert_eq!(amount, 3000000),
         other => panic!("Expected Borrow in first retraction, got {:?}", other),
     }
 
     match &reorg_retractions[1].original_event {
-        Some(ChainEvent::Deposit { amount, .. }) => assert_eq!(*amount, 2000000),
+        Some(ChainEvent::Deposit { amount, .. }) => assert_eq!(amount, 2000000),
         other => panic!("Expected Deposit in second retraction, got {:?}", other),
     }
 
@@ -353,7 +355,7 @@ async fn test_rs02_chaos_reorg_2_blocks_with_reverse_retractions() {
         ChainEvent::Deposit {
             amount, account, ..
         } => {
-            assert_eq!(*amount, 7777777);
+            assert_eq!(amount, 7777777);
             assert!(account.0.eq_ignore_ascii_case(user_b));
         }
         other => panic!("Expected canonical Deposit, got {:?}", other),
@@ -363,7 +365,7 @@ async fn test_rs02_chaos_reorg_2_blocks_with_reverse_retractions() {
         ChainEvent::Borrow {
             amount, account, ..
         } => {
-            assert_eq!(*amount, 8888888);
+            assert_eq!(amount, 8888888);
             assert!(account.0.eq_ignore_ascii_case(user_b));
         }
         other => panic!("Expected canonical Borrow, got {:?}", other),
@@ -373,7 +375,7 @@ async fn test_rs02_chaos_reorg_2_blocks_with_reverse_retractions() {
         ChainEvent::Repay {
             amount, account, ..
         } => {
-            assert_eq!(*amount, 9999999);
+            assert_eq!(amount, 9999999);
             assert!(account.0.eq_ignore_ascii_case(user_b));
         }
         other => panic!("Expected canonical Repay, got {:?}", other),

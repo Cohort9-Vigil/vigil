@@ -1,3 +1,5 @@
+extern crate vigil_indexer as indexer;
+
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -210,14 +212,14 @@ async fn test_rs01_live_anvil_ingestion_and_decoding() {
                 ..
             } => {
                 if account.0.eq_ignore_ascii_case(user1) && asset.0.eq_ignore_ascii_case(asset1) {
-                    assert_eq!(*amount, 5_000_000_000_000_000_000);
+                    assert_eq!(amount, 5_000_000_000_000_000_000);
                     found_deposit = true;
                 }
             }
             ChainEvent::Borrow {
                 account, amount, ..
             } if account.0.eq_ignore_ascii_case(user1) => {
-                assert_eq!(*amount, 1_200_000_000_000_000_000);
+                assert_eq!(amount, 1_200_000_000_000_000_000);
                 found_borrow = true;
             }
             ChainEvent::PriceUpdated(p) if p.asset.0.eq_ignore_ascii_case(asset1) => {

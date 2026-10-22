@@ -1,0 +1,7 @@
+target/
+services/target/
+.git
+contracts/
+docs/
+scenario/
+pgdata/

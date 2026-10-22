@@ -19,6 +19,11 @@ pub struct Metrics {
     pub reorgs_handled_total: Arc<AtomicU64>,
     pub retractions_emitted_total: Arc<AtomicU64>,
     pub last_indexed_block: Arc<AtomicU64>,
+    pub deposit_total: Arc<AtomicU64>,
+    pub borrow_total: Arc<AtomicU64>,
+    pub repay_total: Arc<AtomicU64>,
+    pub liquidation_total: Arc<AtomicU64>,
+    pub price_updated_total: Arc<AtomicU64>,
 }
 
 impl Metrics {
@@ -28,6 +33,17 @@ impl Metrics {
 
     pub fn inc_events(&self, count: u64) {
         self.events_processed_total.fetch_add(count, Ordering::Relaxed);
+    }
+
+    pub fn inc_event_by_type(&self, event_type: &str) {
+        match event_type {
+            "Deposit" => { self.deposit_total.fetch_add(1, Ordering::Relaxed); }
+            "Borrow" => { self.borrow_total.fetch_add(1, Ordering::Relaxed); }
+            "Repay" => { self.repay_total.fetch_add(1, Ordering::Relaxed); }
+            "LiquidationCall" => { self.liquidation_total.fetch_add(1, Ordering::Relaxed); }
+            "PriceUpdated" => { self.price_updated_total.fetch_add(1, Ordering::Relaxed); }
+            _ => {}
+        }
     }
 
     pub fn inc_reorgs(&self) {
@@ -64,6 +80,13 @@ impl Metrics {
             "# HELP events_processed_total Total number of chain events processed\n\
              # TYPE events_processed_total counter\n\
              events_processed_total {}\n\n\
+             # HELP events_by_type_total Number of events processed by event type\n\
+             # TYPE events_by_type_total counter\n\
+             events_by_type_total{{type=\"Deposit\"}} {}\n\
+             events_by_type_total{{type=\"Borrow\"}} {}\n\
+             events_by_type_total{{type=\"Repay\"}} {}\n\
+             events_by_type_total{{type=\"LiquidationCall\"}} {}\n\
+             events_by_type_total{{type=\"PriceUpdated\"}} {}\n\n\
              # HELP reorgs_handled_total Total number of chain reorganizations handled\n\
              # TYPE reorgs_handled_total counter\n\
              reorgs_handled_total {}\n\n\
@@ -74,6 +97,11 @@ impl Metrics {
              # TYPE last_indexed_block gauge\n\
              last_indexed_block {}\n",
             self.get_events(),
+            self.deposit_total.load(Ordering::Relaxed),
+            self.borrow_total.load(Ordering::Relaxed),
+            self.repay_total.load(Ordering::Relaxed),
+            self.liquidation_total.load(Ordering::Relaxed),
+            self.price_updated_total.load(Ordering::Relaxed),
             self.get_reorgs(),
             self.get_retractions(),
             self.get_last_block(),
@@ -150,6 +178,8 @@ mod tests {
         assert_eq!(metrics.get_last_block(), 0);
 
         metrics.inc_events(5);
+        metrics.inc_event_by_type("Borrow");
+        metrics.inc_event_by_type("Deposit");
         metrics.inc_reorgs();
         metrics.inc_retractions(2);
         metrics.set_last_block(105);
@@ -161,6 +191,8 @@ mod tests {
 
         let rendered = metrics.render_prometheus();
         assert!(rendered.contains("events_processed_total 5"));
+        assert!(rendered.contains("events_by_type_total{type=\"Borrow\"} 1"));
+        assert!(rendered.contains("events_by_type_total{type=\"Deposit\"} 1"));
         assert!(rendered.contains("reorgs_handled_total 1"));
         assert!(rendered.contains("retractions_emitted_total 2"));
         assert!(rendered.contains("last_indexed_block 105"));

@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[lib]
+name = "vigil_indexer"
+path = "src/lib.rs"
+
 [dependencies]
 common = { package = "vigil-common", path = "../common" }
 alloy.workspace = true

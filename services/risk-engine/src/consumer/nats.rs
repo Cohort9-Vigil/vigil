@@ -201,6 +201,12 @@ pub async fn process_indexed_event_in_tx(
             asset,
             amount,
             ..
+        }
+        | ChainEvent::CollateralDeposited {
+            account,
+            asset,
+            amount,
+            ..
         } => {
             let dummy_delta = AppliedDelta {
                 prev_collateral: 0,
@@ -250,6 +256,9 @@ pub async fn process_indexed_event_in_tx(
 
         ChainEvent::Borrow {
             account, amount, ..
+        }
+        | ChainEvent::Borrowed {
+            account, amount, ..
         } => {
             let collateral_asset = &config.canonical_debt_asset;
             let dummy_delta = AppliedDelta {
@@ -296,6 +305,9 @@ pub async fn process_indexed_event_in_tx(
         }
 
         ChainEvent::Repay {
+            account, amount, ..
+        }
+        | ChainEvent::Repaid {
             account, amount, ..
         } => {
             let collateral_asset = &config.canonical_debt_asset;
@@ -399,6 +411,63 @@ pub async fn process_indexed_event_in_tx(
             evaluate_and_update_position(conn, eval_ctx, config, health_gate).await?;
         }
 
+        ChainEvent::Liquidated {
+            borrower,
+            collateral_asset,
+            repay_amount,
+            collateral_amount,
+            ..
+        } => {
+            let dummy_delta = AppliedDelta {
+                prev_collateral: 0,
+                new_collateral: 0,
+                prev_debt: 0,
+                new_debt: 0,
+            };
+
+            let params = EventRecordParams {
+                block_hash,
+                log_index,
+                block_number,
+                event_type: "Liquidated",
+                account: Some(&borrower.0),
+                asset: Some(&collateral_asset.0),
+            };
+            if !record_event_if_new(conn, params, &dummy_delta).await? {
+                return Ok(());
+            }
+
+            let delta = apply_liquidation(
+                conn,
+                &borrower.0,
+                &collateral_asset.0,
+                *repay_amount,
+                *collateral_amount,
+                block_number,
+            )
+            .await?;
+
+            sqlx::query(
+                "UPDATE processed_events SET applied_delta = $1 WHERE block_hash = $2 AND log_index = $3",
+            )
+            .bind(serde_json::to_value(&delta)?)
+            .bind(block_hash)
+            .bind(log_index as i64)
+            .execute(&mut *conn)
+            .await?;
+
+            update_heartbeat(conn, block_number, block_hash).await?;
+
+            let eval_ctx = PositionEvalContext {
+                account: &borrower.0,
+                collateral_asset: &collateral_asset.0,
+                block_number,
+                block_hash,
+                timestamp,
+            };
+            evaluate_and_update_position(conn, eval_ctx, config, health_gate).await?;
+        }
+
         ChainEvent::PriceUpdated(oracle_price) => {
             let dummy_delta = AppliedDelta {
                 prev_collateral: 0,
@@ -443,6 +512,30 @@ pub async fn process_indexed_event_in_tx(
                 };
                 evaluate_and_update_position(conn, eval_ctx, config, health_gate).await?;
             }
+        }
+
+        other => {
+            let event_type = other.event_type();
+            let account = other.account_str();
+            let asset = other.asset_str();
+            let dummy_delta = AppliedDelta {
+                prev_collateral: 0,
+                new_collateral: 0,
+                prev_debt: 0,
+                new_debt: 0,
+            };
+            let params = EventRecordParams {
+                block_hash,
+                log_index,
+                block_number,
+                event_type,
+                account: account.as_deref(),
+                asset: asset.as_deref(),
+            };
+            if !record_event_if_new(conn, params, &dummy_delta).await? {
+                return Ok(());
+            }
+            update_heartbeat(conn, block_number, block_hash).await?;
         }
     }
 
